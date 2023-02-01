@@ -1,0 +1,6 @@
+module load mpi/openmpi/4.1.1/gcc-9.3.0
+module load libs/fftw3_double/3.3.4/gcc-5.5.0+openmpi-1.10.7
+
+
+mpicxx main_F.cpp -std=c++0x -O3 -march=native -fopenmp -L/opt/gridware/depots/e2b91392/el7/pkg/libs/fftw3_double/3.3.4/gcc-5.5.0+openmpi-1.10.7/lib -I/opt/gridware/depots/e2b91392/el7/pkg/libs/fftw3_double/3.3.4/gcc-5.5.0+openmpi-1.10.7/include -lfftw3_omp -lfftw3_mpi -lfftw3 -lm -lpthread -ob.out
+
