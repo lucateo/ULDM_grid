@@ -14,3 +14,12 @@ Another example:
 ./main_sim 128 100 1000 1 Schive true 4 30 80
 
 Simulations which uses multi soliton initial conditions a la Schive, starting from backup files of a run with the same parameters; the last three parameters are core radii of solitons, number of solitons and length of the box where the center of the solitons are randomply positioned. Files are stored on the out_schive/ directory, which should be created BEFORE running the program.
+
+Details of the MPI implementation
+- the grid is split in the z-direction onto different processes
+- each of the psi grids has an additional two "ghost" layers both at the top and the bottom, which overlap wth the physical grid points on other processes (these might not be needed eventually?)
+- Phi does not have ghost cells
+- Fourier transforms basically handle themselves with the output grid split simmilarly in the k_z direction (the FT memory doesn't need ghost cells)
+
+Details of the two field implementation
+- the array psi now has four components: Re(psi_1), Im(psi_1), Re(psi_2), Im(psi_2), both of which are evolved and contribute to the potential
