@@ -20,7 +20,7 @@ int main(int argc, char** argv){
     if (world_size < 2) {
         fprintf(stderr, "World size must be greater than 1 for %s\n", argv[0]);
         MPI_Abort(MPI_COMM_WORLD, 1); }
- 
+
 
     int beginning=time(NULL);
     // srand(time(NULL));
@@ -28,7 +28,7 @@ int main(int argc, char** argv){
 
     int Nx = atof(argv[1]);                       //number of gridpoints
 
-    // keep all the boxes the same height for simplicity, so change if not divisible     
+    // keep all the boxes the same height for simplicity, so change if not divisible
     if(Nx%world_size!=0){
          if(world_rank==0){ cout<<"warning: space steps not divisible, adjusting"<<endl;}
          int temp= (int) Nx/world_size;
