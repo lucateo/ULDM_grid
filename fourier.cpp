@@ -16,6 +16,9 @@ Fourier::Fourier(size_t PS, size_t PSS, int WR, int WS){
   planback = fftw_mpi_plan_dft_3d(Nx, Nx, Nx, rin , rin, MPI_COMM_WORLD,FFTW_BACKWARD, FFTW_MEASURE);
 };
 
+Fourier::Fourier(){};
+Fourier::~Fourier(){};
+
 void Fourier::calculateFT(){
   fftw_execute(plan);
 }
