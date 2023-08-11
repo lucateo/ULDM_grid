@@ -142,10 +142,10 @@ for(size_t i=0;i<Nx;i++)
         rin[i+Nx*j+Nx*Nx*k][1]= 0;
         rin[i+Nx*j+Nx*Nx*k][0]= 0;
       }
-        else{
-            rin[i+Nx*j+Nx*Nx*k][1]= (-1./ksq)*rin[i+Nx*j+Nx*Nx*k][1];
-            rin[i+Nx*j+Nx*Nx*k][0]= (-1./ksq)*rin[i+Nx*j+Nx*Nx*k][0];
-        }
+      else{
+          rin[i+Nx*j+Nx*Nx*k][1]= (-1./ksq)*rin[i+Nx*j+Nx*Nx*k][1];
+          rin[i+Nx*j+Nx*Nx*k][0]= (-1./ksq)*rin[i+Nx*j+Nx*Nx*k][0];
+      }
     }
 #pragma omp barrier
 }

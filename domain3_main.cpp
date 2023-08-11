@@ -1,34 +1,5 @@
 #include "uldm_mpi_2field.h"
 
-// domain3::domain3(size_t PS,size_t PSS, double L, double r_m, int Numsteps, double DT, int Nout, int Nout_profile, 
-//         string Outputname, int pointsm, int WR, int WS, int Nghost) :
-// psi(extents[4][PS][PS][PSS+2*Nghost]),
-// Phi(extents[PS][PS][PSS])
-//   {
-//       nghost=Nghost;
-//       ratio_mass=r_m;
-//       fgrid = Fourier(PS,PSS,WR,WS); // class for Fourier trasform, defined above
-//       ca=extents[8];
-//       da=extents[8];
-//       PointsS=PS;
-//       PointsSS=PSS;
-//       Length=L;
-//       dt=DT;
-//       // tf(Tf),
-//       numsteps=Numsteps;
-//       pointsmax=pointsm;
-//       numoutputs=Nout;
-//       numoutputs_profile=Nout_profile;
-//       outputname=Outputname;
-//       jumps=extents[Nout+1]; // vector whose length corresponds to the outputs in time
-//       jumps_profile= extents[Nout_profile+1]; // vector whose length corresponds to the outputs in time for profile
-//       world_rank=WR;
-//       world_size=WS;
-//     deltaX=Length/PointsS;
-//     // stepping numbers, as defined in axionyx documentation
-//     ca[0]=0.39225680523878;   ca[1]=0.51004341191846;   ca[2] =-0.47105338540976; ca[3]=0.06875316825251;    ca[4]=0.06875316825251;    ca[5]=-0.47105338540976;  ca[6]=0.51004341191846;   ca[7]=0.39225680523878;
-//     da[0]=0.784513610477560;  da[1]=0.235573213359359;  da[2]=-1.17767998417887;  da[3]=1.3151863206839023;  da[4]=-1.17767998417887;   da[5]=0.235573213359359;  da[6]=0.784513610477560;  da[7]=0;
-//   }; // constructor
         domain3::domain3(size_t PS,size_t PSS, double L, double r_m, int Numsteps, double DT, int Nout, int Nout_profile, 
             string Outputname, int pointsm, int WR, int WS, int Nghost):
           nghost(Nghost),
@@ -74,7 +45,7 @@ void domain3::setoutputs(double t_ini){// Set the indices of the steps when outp
         #pragma omp parallel for collapse(3) reduction(+:totV)
         for(size_t i=0;i<PointsS;i++)
           for(size_t j=0;j<PointsS;j++)
-            for(size_t k=0;k<PointsSS;k++)
+            for(size_t k=nghost;k<PointsSS+nghost;k++)
               totV=totV+pow(psi[2*whichPsi][i][j][k],2)+pow(psi[2*whichPsi+1][i][j][k],2);
         #pragma omp barrier
 
@@ -214,7 +185,7 @@ void domain3::setoutputs(double t_ini){// Set the indices of the steps when outp
     void domain3::set_backup_flag(bool bool_backup){//If false, no backup
       start_from_backup = bool_backup;
     }
-          void domain3::makestep(double stepCurrent, double tstep){ // makes a step in a dt
+    void domain3::makestep(double stepCurrent, double tstep){ // makes a step in a dt
       // loop over the 8 values of alpha
       for(int alpha=0;alpha<8;alpha++){
         //1: For any fixed value of alpha, perform the operation exp(-i c_\alpha dt k^2/2)\psi(t) in Fourier space
@@ -241,7 +212,7 @@ void domain3::setoutputs(double t_ini){// Set the indices of the steps when outp
       }
       long double psisqmean0 = psisqmean(0);
       long double psisqmean1 = psisqmean(1);
-      if(world_rank==0){ cout<<"mean value of field 0 "<<psisqmean0<<"  and field 1 "<<psisqmean1<<endl;}
+      if(world_rank==0){ cout<<"mean value of field 0 "<<psisqmean0<<"  and field 1 "<<psisqmean1 <<endl;}
     }
 
     void domain3::solveConvDif(){
@@ -261,10 +232,11 @@ void domain3::setoutputs(double t_ini){// Set the indices of the steps when outp
         // First step, I need its total energy (for adaptive time step, the Energy at 0 does not have the potential energy
         // (Phi is not computed yet), so store the initial energy after one step
         if(world_rank==0){
-          cout<<"current time = "<< tcurrent << " step " << stepCurrent <<endl;
+          cout<<"current time = "<< tcurrent << " step " << stepCurrent << " / " << numsteps<<endl;
           cout<<"elapsed computing time (s) = "<< time(NULL)-beginning<<endl;
         }
         makestep(stepCurrent,dt);
+        // sortGhosts();
         tcurrent=tcurrent+dt;
         stepCurrent=stepCurrent+1;
         E_tot_initial = e_kin_full1(0) + full_energy_pot(0) + e_kin_full1(1) + full_energy_pot(1);
@@ -282,14 +254,17 @@ void domain3::setoutputs(double t_ini){// Set the indices of the steps when outp
 
     while(stepCurrent<=numsteps){
       if(world_rank==0){
-        cout<<"current time = "<< tcurrent  << " step " << stepCurrent <<endl;
+        cout<<"current time = "<< tcurrent  << " step " << stepCurrent << " / " << numsteps<<endl;
         cout<<"elapsed computing time (s) = "<< time(NULL)-beginning<<endl;
       }
       makestep(stepCurrent,dt);
+      // sortGhosts();
       tcurrent=tcurrent+dt;
       stepCurrent=stepCurrent+1;
       for(int index=0;index<=numoutputs;index++)
-          if(stepCurrent==jumps[index]) { snapshot(stepCurrent); }
+        if(stepCurrent==jumps[index]) { 
+          snapshot(stepCurrent); 
+        }
       for(int index=0;index<=numoutputs_profile;index++)
         if(stepCurrent==jumps_profile[index]) {
           snapshot_profile(stepCurrent);
@@ -325,7 +300,7 @@ void domain3::setoutputs(double t_ini){// Set the indices of the steps when outp
       }
       for(size_t i =0; i<PointsS; i++)
         for(size_t j =0; j<PointsS; j++)
-          for(size_t k =0; k<PointsS; k++){
+          for(size_t k =0; k<PointsSS; k++){
             // cout<<i<<endl;
             Phi[i][j][k] = Arr1D[i+j*PointsS+k*PointsS*PointsS];
           }
@@ -342,9 +317,8 @@ void domain3::setoutputs(double t_ini){// Set the indices of the steps when outp
       for(size_t m =0; m<4; m++)
         for(size_t i =0; i<PointsS; i++)
           for(size_t j =0; j<PointsS; j++)
-            for(size_t k =0; k<PointsS; k++){
-              // cout<<i<<endl;
-              psi[m][i][j][k] = Arr1D[i+j*PointsS+k*PointsS*PointsS+m*PointsS*PointsS*PointsSS];
+            for(size_t k =0; k<PointsSS; k++){
+              psi[m][i][j][k+nghost] = Arr1Dpsi[i+j*PointsS+k*PointsS*PointsS+m*PointsS*PointsS*PointsSS];
             }
       infile.close();
     }

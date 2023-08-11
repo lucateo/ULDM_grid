@@ -1,4 +1,5 @@
 #include "uldm_mpi_2field.h"
+#include <string>
 
 
 //To make it run, an example: mpirun -np 4 main_sim_mpi 128 100 1000 1 1Sol false 4
@@ -76,15 +77,16 @@ int main(int argc, char** argv){
   else if (initial_cond == "1Sol" ) {// 1 Soliton initial conditions
     if (argc > 10){
       double rc = atof(argv[10]); // radius of soliton
+      int whichpsi = atof(argv[11]); // radius of soliton
       string outputname = "out_mpi/out_test/out_2fields_1Sol_nopsisqmean_Nx" + to_string(Nx) +"_rmasses_"+ to_string(ratio_m) + "_L_" + to_string(Length)
-        + "_rc_" + to_string(rc)+ "_";
+        + "_rc_" + to_string(rc)+ "_field_"+to_string(whichpsi) + "_";
       domain3 D3(Nx,Nz,Length,ratio_m,numsteps,dt,outputnumb, outputnumb_profile, outputname, Pointsmax, world_rank,world_size,nghost);
       D3.set_grid(false);
       D3.set_grid_phase(false); // It will output 2D slice of phase grid
       if(start_from_backup=="true")
         D3.initial_cond_from_backup();
       else
-        D3.setInitialSoliton_1(rc);
+        D3.setInitialSoliton_1(rc, whichpsi);
       D3.set_backup_flag(backup_bool);
       D3.solveConvDif();
     }

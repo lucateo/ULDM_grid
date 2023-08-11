@@ -52,6 +52,9 @@ double psi_soliton(double r_c, double r){
 // New function to send
 void sendg( multi_array<double,4>  &grid,int ii, int world_rank, int world_size, int dir, int nghost){
         // first package the data that needs to be sent into a vector since MPI knows how to deal with this already
+        // grid is psi vector, ii is real/imaginary index, dir = 0 is the top of the grid,
+        // dir=1 is the bottom of the grid; apparently, this sends the physical layer (i.e. no ghost layers)
+        // just above (dir=1) or below (dir=0) the ghost layer.
         size_t nelements=size_t(grid.shape()[1])*size_t(grid.shape()[1])*nghost;
         vector<double> send(nelements);
 
@@ -72,6 +75,7 @@ void sendg( multi_array<double,4>  &grid,int ii, int world_rank, int world_size,
             }
         }
 
+      // Sends ro the node with world_rank+1 (account for periodicity), but if dir==1, it sends to world_rank-1
       if(dir==0){MPI_Send(&send.front(), send.size(), MPI_DOUBLE , cyc(world_rank+1,world_size), 20, MPI_COMM_WORLD);}
       else {MPI_Send(&send.front(), send.size(), MPI_DOUBLE , cyc(world_rank-1,world_size), 21, MPI_COMM_WORLD);}
 }
@@ -119,9 +123,9 @@ void transferghosts( multi_array<double,4> &gr,int ii, int world_rank, int world
               sendg(gr,ii, world_rank,world_size,dir,nghost);
               receiveg(gr,ii, world_rank,world_size,dir,nghost);
           }
-          else{
-              receiveg(gr,ii,world_rank,world_size,dir,nghost);
-              sendg(gr,ii,world_rank,world_size,dir,nghost);
-           }
+    else{
+        receiveg(gr,ii,world_rank,world_size,dir,nghost);
+        sendg(gr,ii,world_rank,world_size,dir,nghost);
+    }
     }
 }

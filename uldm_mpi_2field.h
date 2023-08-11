@@ -73,9 +73,11 @@ template<class T, class U>
 // of numbers, arranged in a 3*Nx array such that v1[i][j][k] goes to the i + Nx*j + Nx*Nx*k position
 // The numbers are separated by a space, " ", except for the last one
 void print3_cpp(multi_array<T,3> & v1,  U & filename){
-    int Nx=dimension(v1);
-    for(int k = 0;k < Nx; k++){
-      for(int j = 0;j < Nx; j++){
+    int Nx=v1.shape()[0];
+    int Ny=v1.shape()[1];
+    int Nz=v1.shape()[2];
+    for(int k = 0;k < Nz; k++){
+      for(int j = 0;j < Ny; j++){
         for(int i = 0;i < Nx; i++){
           filename<<v1[i][j][k];
           if(k!=(Nx-1) || j!=(Nx-1) || i!=(Nx-1)) //If it is not the last one
@@ -88,13 +90,14 @@ template<class T, class U> //Outputs the full psi with the to fields
 void print4_cpp(multi_array<T,4> & v1,  U & filename, int nghost){
   int Nl = v1.shape()[0]; //Dimension along the first argument
   int Nx=v1.shape()[1];
+  int Ny=v1.shape()[2];
   int Nz=v1.shape()[3]; //Nz contains the 2*nghost cells
   for(int l=0;l<Nl;l++){
     for(int k = nghost;k < Nz-nghost; k++){
       for(int j = 0;j < Nx; j++){
         for(int i = 0;i < Nx; i++){
           filename<<v1[l][i][j][k];
-          if(l!=(Nl-1) || k!=(Nx-1) || j!=(Nx-1) || i!=(Nx-1)) //If it is not the last one
+          if(l!=(Nl-1) || k!=(Nz-nghost-1) || j!=(Ny-1) || i!=(Nx-1)) //If it is not the last one
             filename<< " ";
         }
       }
@@ -118,7 +121,7 @@ extern void sendg( multi_array<double,4>  &grid,int ii, int world_rank, int worl
 // New function to receive
 extern void receiveg(multi_array<double,4> &grid,int ii,  int world_rank, int world_size, int dir, int nghost);
 // MPI stuff to sort out the ghosts
-void transferghosts( multi_array<double,4> &gr,int ii, int world_rank, int world_size, int nghost);// Class for the Fourier Transform
+extern void transferghosts( multi_array<double,4> &gr,int ii, int world_rank, int world_size, int nghost);// Class for the Fourier Transform
 
 // No ghosts in the z-direction on these grids
 class Fourier{
@@ -344,7 +347,7 @@ class domain3{
         // Initial conditions functions
         // Initial condition with waves, test purposes
         void initial_waves();
-        void setInitialSoliton_1(double r_c);
+        void setInitialSoliton_1(double r_c, int whichPsi);
         // sets many solitons as initial condition, with random core radius whose centers are confined in a box of length length_lim
         void setManySolitons_random_radius(int num_Sol, double min_radius, double max_radius, double length_lim);
         // sets many solitons as initial condition, with same core radius whose centers are confined in a box of length length_lim

@@ -35,16 +35,19 @@ void domain3::initial_waves(){
 //         #pragma omp barrier
 //     }
 
-void domain3::setInitialSoliton_1(double r_c){ // sets 1 soliton in the center of the grid as initial condition, for field 0
+void domain3::setInitialSoliton_1(double r_c, int whichpsi){ // sets 1 soliton in the center of the grid as initial condition, for field 0
   int center = (int) PointsS / 2; // The center of the grid, more or less
   int extrak= PointsSS*(world_rank-maxNode); // Take into account the node where you are
+  double rc;
+  if(whichpsi==0){rc=r_c;}
+  else{rc=r_c/ratio_mass;} // If it is the second field, divide by the ratio of the masses to recover correct scaling
   #pragma omp parallel for collapse(3) //not sure whether this is parallelizable
     for(int i=0;i<PointsS;i++){
       for(int j=0; j<PointsS;j++){
         for(int k=nghost; k<PointsSS+nghost;k++){
           // Distance from the center of the soliton
           double radius = deltaX * sqrt( pow( abs(i - center),2) + pow( abs(j - center),2) + pow( abs(k - extrak - center),2));
-          psi[0][i][j][k] = psi_soliton(r_c, radius);
+          psi[0][i][j][k] = psi_soliton(rc, radius);
           psi[1][i][j][k] = 0; // Set the imaginary part to zero
         }
       }

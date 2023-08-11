@@ -171,7 +171,7 @@ multi_array<double,2> domain3::profile_density(double density_max, int whichPsi)
       for(int lpc=0;lpc<6;lpc++){
         transform(binned[lpc].begin(), binned[lpc].end(), recBinned[lpc].begin(), binned[lpc].begin(), std::plus<double>());
       }
-  }
+    }
   }
 
   #pragma omp parallel for
