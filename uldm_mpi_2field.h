@@ -134,10 +134,11 @@ class Fourier{
   ptrdiff_t alloc_local, local_n0, local_0_start;
   int world_rank;
   int world_size;
+  bool mpi_bool;
 
   public:
     Fourier(); //default constructor
-    Fourier(size_t PS, size_t PSS, int WR, int WS);
+    Fourier(size_t PS, size_t PSS, int WR, int WS, bool mpi_flag); //constructor
     ~Fourier(); //destructor
     //calculate the FT, more precisely: \tilde{A}_k = \Sum_{n1,n2,n3=0}^{Nx-1} A_n e^(-2\pi i k\cdot n/Nx)
     void calculateFT();
@@ -176,8 +177,10 @@ class Fourier{
 //////////////////////////////////////////////////////////////////////////////////////////
 class domain3{
   protected:
-    multi_array<double,4> psi;  // contains the two fields
+    multi_array<double,4> psi;  // contains the n fields
     int nghost;                 // number of ghost layers above and below in the z direction
+    bool mpi_bool;
+    int nfields;                 // number of fields
     multi_array<double,3> Phi;
     double ratio_mass; // Ratio between the two masses of ULDM
     size_t PointsS;
@@ -214,13 +217,10 @@ class domain3{
     bool phaseGrid = false; // If true, it outputs the phase slice passing on the center
     bool start_from_backup = false; // If true, starts from the backup files, not adapted for MPI yet
     int pointsmax =0;
-    int maxx;       //location x,y,z of the max density in the grid
+    int maxx;       //location x,y,z of the max density in the grid (for a certain field)
     int maxy;
     int maxz;
-    int maxx1;       //location x,y,z of the max density in the grid of field 1
-    int maxy1;
-    int maxz1;
-    int maxNode;    // node that the maximum value is on
+    int maxNode=0;    // node that the maximum value is on
     double maxdensity; // Max density on the grid
 
     // Variables useful for backup
@@ -232,7 +232,7 @@ class domain3{
 
     public:
         domain3(size_t PS,size_t PSS, double L, double r_m, int Numsteps, double DT, int Nout, int Nout_profile, 
-            string Outputname, int pointsm, int WR, int WS, int Nghost);
+            string Outputname, int pointsm, int WR, int WS, int Nghost, bool mpi_bool);
           // nghost(Nghost),
           // psi(extents[4][PS][PS][PSS+2*Nghost]), //real and imaginary parts are stored consequently, i.e. psi[0]=real part psi1 and psi[1]=imaginary part psi1, then the same for psi2
           // Phi(extents[PS][PS][PSS]),

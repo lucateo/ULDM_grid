@@ -3,17 +3,28 @@
 using namespace std;
 using namespace boost;
 
-Fourier::Fourier(size_t PS, size_t PSS, int WR, int WS){
-  int fftw_init_threads(void);
+Fourier::Fourier(size_t PS, size_t PSS, int WR, int WS, bool mpi){
   // In the z direction, less points; loops on z direction start from local_0_start
   Nx=PS; Nz=PSS;
   world_rank=WR; world_size=WS;
   size_t totalValues=Nx*Nx*Nz;
-  alloc_local = fftw_mpi_local_size_3d(PS,PS,PS, MPI_COMM_WORLD,&local_n0, &local_0_start);
-  rin = fftw_alloc_complex(alloc_local); // memory for input/ output
+  int fftw_init_threads(void);
+  if(mpi==true){
+    alloc_local = fftw_mpi_local_size_3d(PS,PS,PS, MPI_COMM_WORLD,&local_n0, &local_0_start);
+    rin = fftw_alloc_complex(alloc_local); // memory for input/ output
+  }
+  else {
+    rin = (fftw_complex *) malloc(totalValues * sizeof(fftw_complex));
+  }
   fftw_plan_with_nthreads(omp_get_max_threads());
-  plan = fftw_mpi_plan_dft_3d(Nx, Nx, Nx, rin , rin, MPI_COMM_WORLD,FFTW_FORWARD, FFTW_MEASURE);
-  planback = fftw_mpi_plan_dft_3d(Nx, Nx, Nx, rin , rin, MPI_COMM_WORLD,FFTW_BACKWARD, FFTW_MEASURE);
+  if(mpi==true){
+    plan = fftw_mpi_plan_dft_3d(Nx, Nx, Nx, rin , rin, MPI_COMM_WORLD,FFTW_FORWARD, FFTW_MEASURE);
+    planback = fftw_mpi_plan_dft_3d(Nx, Nx, Nx, rin , rin, MPI_COMM_WORLD,FFTW_BACKWARD, FFTW_MEASURE);
+  }
+  else {
+    plan = fftw_plan_dft_3d(Nx, Nx, Nx, rin , rin, FFTW_FORWARD, FFTW_MEASURE);
+    planback= fftw_plan_dft_3d(Nx, Nx, Nx, rin , rin,FFTW_BACKWARD, FFTW_MEASURE);
+  }
 };
 
 Fourier::Fourier(){};

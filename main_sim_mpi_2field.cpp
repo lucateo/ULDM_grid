@@ -8,18 +8,27 @@
 // create the directory BEFORE running the code
 int main(int argc, char** argv){
   int provided;
-  MPI_Init_thread(&argc, &argv, MPI_THREAD_FUNNELED, &provided);
-  fftw_init_threads();
-  fftw_mpi_init();
-  // Find out rank of the particular process and the overal number of processes being run
   int world_rank;
-  MPI_Comm_rank(MPI_COMM_WORLD, &world_rank);
   int world_size;
-  MPI_Comm_size(MPI_COMM_WORLD, &world_size);
-  if(world_rank==0){cout<<" world size is "<<world_size<<endl;}
-  if (world_size < 2) {
-      fprintf(stderr, "World size must be greater than 1 for %s\n", argv[0]);
-      MPI_Abort(MPI_COMM_WORLD, 1); }
+  int nghost=2; // number of ghost cells on the psi grids, 2 is the usual and the code will probably break with any other value
+  bool mpirun_flag = false;
+  if(mpirun_flag == true){
+    MPI_Init_thread(&argc, &argv, MPI_THREAD_FUNNELED, &provided);
+    fftw_init_threads();
+    fftw_mpi_init();
+    // Find out rank of the particular process and the overal number of processes being run
+    MPI_Comm_rank(MPI_COMM_WORLD, &world_rank);
+    MPI_Comm_size(MPI_COMM_WORLD, &world_size);
+    if(world_rank==0){cout<<" world size is "<<world_size<<endl;}
+    if (world_size < 2) {
+        fprintf(stderr, "World size must be greater than 1 for %s\n", argv[0]);
+        MPI_Abort(MPI_COMM_WORLD, 1); }
+  }
+  else {
+    world_rank = 0;
+    nghost = 0;
+    world_size=1;
+  }
 
   int beginning=time(NULL);
   // srand(time(NULL));
@@ -27,7 +36,7 @@ int main(int argc, char** argv){
 
   int Nx = atof(argv[1]);                       //number of gridpoints
   // keep all the boxes the same height for simplicity, so change if not divisible
-  if(Nx%world_size!=0){
+  if(mpirun_flag==true && Nx%world_size!=0){
         if(world_rank==0){ cout<<"warning: space steps not divisible, adjusting"<<endl;}
         int temp= (int) Nx/world_size;
         Nx=temp*world_size;
@@ -44,7 +53,6 @@ int main(int argc, char** argv){
 
   double dx = Length/Nx;                            //latticeSpacing, dx=L/Nx, L in units of m
   int Pointsmax = Nx/2; //Number of maximum points which are plotted in profile function
-  int nghost=2; // number of ghost cells on the psi grids, 2 is the usual and the code will probably break with any other value
 
   // This is to tell which initial condition you want to run
   string initial_cond = argv[8];
@@ -61,7 +69,7 @@ int main(int argc, char** argv){
       int vw = atof(argv[12]); // Velocity of particles
       string outputname = "out_mpi/out_test/out_2fields_Levkov_nopsisqmean_Nx" + to_string(Nx) +"_rmasses_"+ to_string(ratio_m) + "_L_" + to_string(Length)
         + "_Npart_" + to_string(Npart) + "_Npart1_" + to_string(Npart1) + "_vw_" + to_string(vw)+ "_";
-      domain3 D3(Nx,Nz,Length,ratio_m,numsteps,dt,outputnumb, outputnumb_profile, outputname, Pointsmax, world_rank,world_size,nghost);
+      domain3 D3(Nx,Nz,Length,ratio_m,numsteps,dt,outputnumb, outputnumb_profile, outputname, Pointsmax, world_rank,world_size,nghost, mpirun_flag);
       D3.set_grid(false);
       D3.set_grid_phase(false); // It will output 2D slice of phase grid
       if(start_from_backup=="true")
@@ -80,7 +88,7 @@ int main(int argc, char** argv){
       int whichpsi = atof(argv[11]); // radius of soliton
       string outputname = "out_mpi/out_test/out_2fields_1Sol_nopsisqmean_Nx" + to_string(Nx) +"_rmasses_"+ to_string(ratio_m) + "_L_" + to_string(Length)
         + "_rc_" + to_string(rc)+ "_field_"+to_string(whichpsi) + "_";
-      domain3 D3(Nx,Nz,Length,ratio_m,numsteps,dt,outputnumb, outputnumb_profile, outputname, Pointsmax, world_rank,world_size,nghost);
+      domain3 D3(Nx,Nz,Length,ratio_m,numsteps,dt,outputnumb, outputnumb_profile, outputname, Pointsmax, world_rank,world_size,nghost, mpirun_flag);
       D3.set_grid(false);
       D3.set_grid_phase(false); // It will output 2D slice of phase grid
       if(start_from_backup=="true")
@@ -100,7 +108,7 @@ int main(int argc, char** argv){
       double length_lim = atof(argv[12]); // Length lim of span of solitons
       string outputname = "out_mpi/out_test/out_2fields_Schive_nopsisqmean_Nx" + to_string(Nx) +"_rmasses_"+ to_string(ratio_m) + "_L_" + to_string(Length)
         + "_rc_" + to_string(rc)+ "_Nsol_" + to_string(Nsol)+ "_Llim_" + to_string(length_lim)+"_";
-      domain3 D3(Nx,Nz,Length,ratio_m,numsteps,dt,outputnumb, outputnumb_profile, outputname, Pointsmax, world_rank,world_size,nghost);
+      domain3 D3(Nx,Nz,Length,ratio_m,numsteps,dt,outputnumb, outputnumb_profile, outputname, Pointsmax, world_rank,world_size,nghost,mpirun_flag);
       D3.set_grid(false);
       D3.set_grid_phase(false); // It will output 2D slice of phase grid
       if(start_from_backup=="true")
@@ -121,7 +129,7 @@ int main(int argc, char** argv){
       double length_lim = atof(argv[13]); // Length lim of span of solitons
       string outputname = "out_mpi/out_test/out_2fields_Mocz_nopsisqmean_Nx" + to_string(Nx) +"_rmasses_"+ to_string(ratio_m) + "_L_" + to_string(Length)
         + "_rmin_" + to_string(min_radius)+"_rmax_" +to_string(max_radius)+ "_Nsol_" + to_string(Nsol)+ "_Llim_" + to_string(length_lim)+"_";
-      domain3 D3(Nx,Nz,Length,ratio_m,numsteps,dt,outputnumb, outputnumb_profile, outputname, Pointsmax, world_rank,world_size,nghost);
+      domain3 D3(Nx,Nz,Length,ratio_m,numsteps,dt,outputnumb, outputnumb_profile, outputname, Pointsmax, world_rank,world_size,nghost,mpirun_flag);
       D3.set_grid(false);
       D3.set_grid_phase(false); // It will output 2D slice of phase grid
       if(start_from_backup=="true")
@@ -140,7 +148,7 @@ int main(int argc, char** argv){
       int Nsol = atof(argv[11]); // Number of solitons, should not surpass 30
       string outputname = "out_mpi/out_test/out_2fields_deterministic_nopsisqmean_Nx" + to_string(Nx) +"_rmasses_"+ to_string(ratio_m) + "_L_" + to_string(Length)
         + "_rc_" + to_string(rc)+ "_Nsol_" + to_string(Nsol)+"_";
-      domain3 D3(Nx,Nz,Length,ratio_m,numsteps,dt,outputnumb, outputnumb_profile, outputname, Pointsmax, world_rank,world_size,nghost);
+      domain3 D3(Nx,Nz,Length,ratio_m,numsteps,dt,outputnumb, outputnumb_profile, outputname, Pointsmax, world_rank,world_size,nghost,mpirun_flag);
       D3.set_grid(false);
       D3.set_grid_phase(false); // It will output 2D slice of phase grid
       if(start_from_backup=="true")
@@ -157,7 +165,9 @@ int main(int argc, char** argv){
     cout<< "String in 5th position does not match any possible initial conditions; possible initial conditions are:" << endl;
     cout<< "Schive , Mocz , deterministic , levkov, 1Sol" <<endl;
   }
-  MPI_Finalize();
+  if(mpirun_flag==true){
+    MPI_Finalize();
+  }
   return 0;
 }
 

@@ -54,7 +54,7 @@ void sendg( multi_array<double,4>  &grid,int ii, int world_rank, int world_size,
         // first package the data that needs to be sent into a vector since MPI knows how to deal with this already
         // grid is psi vector, ii is real/imaginary index, dir = 0 is the top of the grid,
         // dir=1 is the bottom of the grid; apparently, this sends the physical layer (i.e. no ghost layers)
-        // just above (dir=1) or below (dir=0) the ghost layer.
+        // just above (dir=1) or below (dir=0) the ghost layer to the ghost layer of neighbors.
         size_t nelements=size_t(grid.shape()[1])*size_t(grid.shape()[1])*nghost;
         vector<double> send(nelements);
 
@@ -114,7 +114,7 @@ void receiveg(multi_array<double,4> &grid,int ii,  int world_rank, int world_siz
     }
 
 
-// MPI stuff to sort out the ghosts
+// MPI stuff to sort out the ghosts, needed for gradients in real space
 void transferghosts( multi_array<double,4> &gr,int ii, int world_rank, int world_size, int nghost){
 
     int dir;
