@@ -257,6 +257,7 @@ class domain3{
       void set_ratio_masses(multi_array<double,1> ratio_mass);//Sets the ratio between the masses of the ULDM wrt field 0
       virtual void makestep(double stepCurrent, double tstep);
       void solveConvDif();
+      // Notice that you should call the backup from a run which uses the SAME number of cores in mpi processes
       void initial_cond_from_backup(); //Sets the initial conditions from the backup files, if backup_flag is true
 
       ////////////// The following are all defined in output_domain3.cpp /////////////////////////

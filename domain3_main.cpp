@@ -72,6 +72,7 @@ double domain3::total_mass(int whichPsi){ // Computes the total mass
 // note k is counted including ghosts; you should call sort_ghost() before calling this function
 double domain3::energy_kin(const int & i, const int & j, const int & k, int whichPsi){// it computes the kinetic energy density at grid point (i,j,k)
   int find=2*whichPsi; // to save typing
+  double r = ratio_mass[whichPsi]; // Correct energy for field with mass ratio r wrt field 0
   double der_psi1re = derivative_3point(psi[find][cyc(i+1, PointsS)][j][k], psi[find][cyc(i-1, PointsS)][j][k], psi[find][cyc(i+2, PointsS)][j][k],
       psi[find][cyc(i-2, PointsS)][j][k], psi[find][cyc(i+3, PointsS)][j][k], psi[find][cyc(i-3, PointsS)][j][k])/deltaX;
   double der_psi1im = derivative_3point(psi[find+1][cyc(i+1, PointsS)][j][k], psi[find+1][cyc(i-1, PointsS)][j][k], psi[find+1][cyc(i+2, PointsS)][j][k],
@@ -84,18 +85,20 @@ double domain3::energy_kin(const int & i, const int & j, const int & k, int whic
       psi[find][i][j][cyc(k-2, PointsSS)], psi[find][i][j][cyc(k+3, PointsSS)], psi[find][i][j][cyc(k-3, PointsSS)])/deltaX;
   double der_psi3im = derivative_3point(psi[find+1][i][j][cyc(k+1, PointsSS)], psi[find+1][i][j][cyc(k-1, PointsSS)], psi[find+1][i][j][cyc(k+2, PointsSS)],
       psi[find+1][i][j][cyc(k-2, PointsSS)], psi[find+1][i][j][cyc(k+3, PointsSS)], psi[find+1][i][j][cyc(k-3, PointsSS)])/deltaX;
-  return 0.5* (pow(der_psi1im,2) + pow(der_psi1re,2) + pow(der_psi2im,2) + pow(der_psi2re,2)+ pow(der_psi3im,2) + pow(der_psi3re,2));
+  return 0.5/r* (pow(der_psi1im,2) + pow(der_psi1re,2) + pow(der_psi2im,2) + pow(der_psi2re,2)+ pow(der_psi3im,2) + pow(der_psi3re,2));
 }
 
 // it computes the potential energy density at grid point (i,j,k)
 // virtual for inheritance (external potential)
 // note that Psi fields have ghost points Phi doesn't, k includes ghosts
 double domain3::energy_pot(const int & i, const int & j, const int & k, int whichPsi){
-    return 0.5*(pow(psi[2*whichPsi][i][j][k],2) + pow(psi[2*whichPsi+1][i][j][k],2))*Phi[i][j][k-nghost];
+  double r = ratio_mass[whichPsi]; // Correct energy for field with mass ratio r wrt field 0
+  return 0.5*r*(pow(psi[2*whichPsi][i][j][k],2) + pow(psi[2*whichPsi+1][i][j][k],2))*Phi[i][j][k-nghost];
 }
 
 double domain3::e_kin_full1(int whichPsi){//Full kinetic energy with Fourier
-  double locV= pow(Length,3)*fgrid.e_kin_FT(psi,Length,nghost,whichPsi);
+  double r = ratio_mass[whichPsi];// Correct energy for field with mass ratio r wrt field 0
+  double locV= pow(Length,3)/r*fgrid.e_kin_FT(psi,Length,nghost,whichPsi);
   double totV;
   // gather all the locV for all processes, sums them (MPI_SUM) and returns totV 
   if(mpi_bool==true){

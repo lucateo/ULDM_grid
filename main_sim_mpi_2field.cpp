@@ -1,4 +1,5 @@
 #include "uldm_mpi_2field.h"
+#include "uldm_sim_nfw.h"
 #include <boost/multi_array.hpp>
 #include <cstdlib>
 #include <string>
@@ -71,7 +72,7 @@ int main(int argc, char** argv){
   if (initial_cond == "levkov" ) {// Levkov initial conditions
     if (argc > 10 +2*num_fields-1){
       multi_array<double, 1> Nparts(extents[num_fields]);
-      string outputname = "out_mpi/out_test/out_2fields_Levkov_nopsisqmean_nfields_"+to_string(num_fields)+"_Nx" + to_string(Nx) + "_L_" + to_string(Length)
+      string outputname = "out_levkov/out_2fields_Levkov_nopsisqmean_nfields_"+to_string(num_fields)+"_Nx" + to_string(Nx) + "_L_" + to_string(Length)
         + "_";
       for (int i=0; i<num_fields;i++){
         Nparts[i] = atof(argv[11+i]); // Number of particles
@@ -97,6 +98,8 @@ int main(int argc, char** argv){
     else if (world_rank==0)
       cout<<"You need 9 +2*num_fields arguments to pass to the code: mpi_bool, Nx, Length, numsteps, dt, num_fields, output_profile, output_profile_radial, initial_cond, start_from_backup string, {Npart}, {ratio_masses}" << endl;
   }
+
+
   else if (initial_cond == "1Sol" ) {// 1 Soliton initial conditions
     if (argc > 13){
       double rc = atof(argv[11]); // radius of soliton
@@ -179,9 +182,43 @@ int main(int argc, char** argv){
     else if (world_rank==0)
       cout<<"You need 12 arguments to pass to the code: mpi_bool, Nx, Length, numsteps, dt, num_fields, output_profile, output_profile_radial, initial_cond, start_from_backup string, rc, Nsol" << endl;
   }
+  
+  else if (initial_cond == "NFW" ) {// External NFW initial conditions
+    if (argc > 11 + 2*num_fields){
+      multi_array<double, 1> Nparts(extents[num_fields]);
+      double rho0_tilde = atof(argv[11]);//Adimensional rho_0 for the NFW external potential
+      double rs_nfw = atof(argv[12]); // Number of particles
+      double const_nfw = rho0_tilde/(4*M_PI);// The constant which enters domain_ext_nfw class
+      string outputname = "out_mpi/out_test/out_2fields_nfw_NoCenterAverage_Nx" + to_string(Nx) + "_L_" + to_string(Length)
+            + "_Rs_" + to_string(rs_nfw) + "_rh0tilde_" + to_string(rho0_tilde)+ "_Npart_"
+            +"_";
+      for (int i=0; i<num_fields;i++){
+        Nparts[i] = atof(argv[13+i]); // Number of particles
+        outputname = outputname + "Npart"+to_string(i) +"_"+ to_string(Nparts[i]) + "_";
+      }
+      domain_ext_nfw D3(Nx,Nz,Length,num_fields,numsteps,dt,outputnumb, outputnumb_profile, outputname, Pointsmax, 
+        world_rank,world_size,nghost,mpirun_flag, rs_nfw, const_nfw);
+      if(num_fields > 1){
+        for(int i=1; i<num_fields;i++){
+          ratio_mass[i] = atof(argv[12+num_fields+i]);
+        }
+      }
+      D3.set_ratio_masses(ratio_mass);
+      D3.set_grid(false);
+      D3.set_grid_phase(false); // It will output 2D slice of phase grid
+      if(start_from_backup=="true")
+        D3.initial_cond_from_backup();
+      else
+        D3.set_waves_Levkov(Nparts, num_fields);
+      D3.set_backup_flag(backup_bool);
+      D3.solveConvDif();
+    }
+    else if (world_rank==0)
+      cout<<"You need 11*2*nfields arguments to pass to the code: mpi_bool, Nx, Length, numsteps, dt, num_fields, output_profile, output_profile_radial, initial_cond, start_from_backup string, rho0_tilde, Rs, {Npart}" << endl;
+  }
   else if (world_rank==0){
     cout<< "String in 9th position does not match any possible initial conditions; possible initial conditions are:" << endl;
-    cout<< "Schive , Mocz , deterministic , levkov, 1Sol" <<endl;
+    cout<< "Schive , Mocz , deterministic , levkov, 1Sol, NFW" <<endl;
   }
   if(mpirun_flag==true){
     MPI_Finalize();
