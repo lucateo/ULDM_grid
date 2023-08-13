@@ -9,17 +9,13 @@ void domain3::openfiles(){ // It opens all the output files, and it inserts an i
   timesfile_profile.open(outputname+"times_profile.txt");       timesfile_profile<<"{";   timesfile_profile.setf(ios_base::fixed);
   profilefile.open(outputname+"profiles.txt");  profilefile<<"{"; profilefile.setf(ios_base::fixed);
   phase_slice.open(outputname+"phase_slice.txt");  phase_slice<<"{"; phase_slice.setf(ios_base::fixed);
-  profilefile1.open(outputname+"profiles_field1.txt");  profilefile1<<"{"; profilefile1.setf(ios_base::fixed);
-  phase_slice1.open(outputname+"phase_slice_field1.txt");  phase_slice1<<"{"; phase_slice1.setf(ios_base::fixed);
   }
-  // This you have to open on all nodes
+  // This you have to open on all nodes, if mpi_bool==true, append the world_rank to the file name
   if(mpi_bool==true){
     profile_sliced.open(outputname+"profile_sliced_node"+to_string(world_rank)+".txt");profile_sliced<<"{"; profile_sliced.setf(ios_base::fixed);
-    profile_sliced1.open(outputname+"profile_sliced_node"+to_string(world_rank)+"_field1.txt");profile_sliced1<<"{"; profile_sliced1.setf(ios_base::fixed);
   }
   else {
     profile_sliced.open(outputname+"profile_sliced.txt");profile_sliced<<"{"; profile_sliced.setf(ios_base::fixed);
-    profile_sliced1.open(outputname+"profile_sliced_field1.txt");profile_sliced1<<"{"; profile_sliced1.setf(ios_base::fixed);
   }
 }
 
@@ -29,17 +25,13 @@ void domain3::openfiles_backup(){ //It opens all the output files in append mode
   timesfile_profile.open(outputname+"times_profile.txt", ios_base::app);  timesfile_profile.setf(ios_base::fixed);
   profilefile.open(outputname+"profiles.txt", ios_base::app); profilefile.setf(ios_base::fixed);
   phase_slice.open(outputname+"phase_slice.txt", ios_base::app);   phase_slice.setf(ios_base::fixed);
-  profilefile1.open(outputname+"profiles_field1.txt", ios_base::app); profilefile1.setf(ios_base::fixed);
-  phase_slice1.open(outputname+"phase_slice_field1.txt", ios_base::app);   phase_slice1.setf(ios_base::fixed);
   }
-  // This you have to open on all nodes
+  // This you have to open on all nodes, if mpi_bool==true, append the world_rank to the file name
   if(mpi_bool==true){
     profile_sliced.open(outputname+"profile_sliced_node"+to_string(world_rank)+".txt", ios_base::app);profile_sliced.setf(ios_base::fixed);
-    profile_sliced1.open(outputname+"profile_sliced_node"+to_string(world_rank)+"_field1.txt", ios_base::app);profile_sliced1.setf(ios_base::fixed);
   }
   else {
     profile_sliced.open(outputname+"profile_sliced.txt", ios_base::app);profile_sliced.setf(ios_base::fixed);
-    profile_sliced1.open(outputname+"profile_sliced_field1.txt", ios_base::app);profile_sliced1.setf(ios_base::fixed);
   }
 }
 
@@ -53,9 +45,6 @@ void domain3::closefiles(){
     profilefile.close();
     profile_sliced.close();
     phase_slice.close();
-    profilefile1.close();
-    profile_sliced1.close();
-    phase_slice1.close();
   }
 }
 
@@ -64,8 +53,14 @@ void domain3::exportValues(){
   if(world_rank==0){
     runinfo.open(outputname+"runinfo.txt");
     runinfo.setf(ios_base::fixed);
-    runinfo<<tcurrent<<" "<<E_tot_initial<<" "<< Length<<" "<<numsteps<<" "<<PointsS<<" " <<ratio_mass <<" "
-        <<numoutputs<<" "<<numoutputs_profile<<endl;
+    runinfo<<tcurrent<<" "<<E_tot_initial<<" "<< Length<<" "<<numsteps<<" "<<PointsS<<" "
+        <<numoutputs<<" "<<numoutputs_profile;
+    for(int i=0; i<nfields; i++)
+    {
+      runinfo<<" "<< ratio_mass[i];
+    }
+    runinfo<<endl;
+    runinfo<<"\n";
     runinfo.close();
   }
 }
@@ -84,7 +79,7 @@ void domain3::outputfulldensity(ofstream& fileout,int whichPsi){// Outputs the f
 }
 
 void domain3::outputfullPhi(ofstream& fileout){// Outputs the full 3D Phi potential, for backup purposes
-  if(mpi_bool==true){
+  if(mpi_bool==true){//if mpi_bool==true, append the world_rank to the file name
     fileout.open(outputname+"phi_final_"+to_string(world_rank)+".txt"); fileout.setf(ios_base::fixed);
   }
   else {
@@ -93,8 +88,8 @@ void domain3::outputfullPhi(ofstream& fileout){// Outputs the full 3D Phi potent
   print3_cpp(Phi,fileout);
   fileout.close();
 }
-void domain3::outputfullPsi(ofstream& fileout){// Outputs the full 3D psi, both fields, for backup purposes
-  if(mpi_bool==true){
+void domain3::outputfullPsi(ofstream& fileout){// Outputs the full 3D psi, every field, for backup purposes
+  if(mpi_bool==true){//if mpi_bool==true, append the world_rank to the file name
     fileout.open(outputname+"psi_final_"+to_string(world_rank)+".txt"); fileout.setf(ios_base::fixed);
   }
   else {
@@ -103,57 +98,50 @@ void domain3::outputfullPsi(ofstream& fileout){// Outputs the full 3D psi, both 
   print4_cpp(psi,fileout,nghost);
   fileout.close();
 }
-void domain3::outputSlicedDensity(ofstream& fileout, int whichPsi){ // Outputs the projected 2D density profile
-  multi_array<double,2> density_sliced(extents[PointsS][PointsS]);
-  #pragma omp parallel for collapse(3)
-  for(size_t i=0;i<PointsS;i++)
-    for(size_t j=0; j<PointsS;j++)
-      for(size_t k=nghost; k<PointsSS+nghost;k++){
-      density_sliced[i][j]= density_sliced[i][j] + pow(psi[2*whichPsi][i][j][k],2)+pow(psi[2*whichPsi][i][j][k],2);
-      }
+void domain3::outputSlicedDensity(ofstream& fileout){ // Outputs the projected 2D density profile
+  multi_array<double,3> density_sliced(extents[nfields][PointsS][PointsS]);
+  #pragma omp parallel for collapse(4)
+  for(int l = 0; l < nfields; l++)
+    for(size_t i=0;i<PointsS;i++)
+      for(size_t j=0; j<PointsS;j++)
+        for(size_t k=nghost; k<PointsSS+nghost;k++){
+        density_sliced[l][i][j]= density_sliced[l][i][j] + pow(psi[2*l][i][j][k],2)+pow(psi[2*l+1][i][j][k],2);
+        }
   #pragma omp barrier
-  print2(density_sliced,fileout);
+  print3(density_sliced,fileout);
 }
 
-void domain3::outputPhaseSlice(ofstream& fileout, int whichPsi){ // Outputs a 2D slice of the phase
-  multi_array<double,2> phase_sliced(extents[PointsS][PointsS]);
-  #pragma omp parallel for collapse(2)
+void domain3::outputPhaseSlice(ofstream& fileout){ // Outputs a 2D slice of the phase
+  multi_array<double,3> phase_sliced(extents[nfields][PointsS][PointsS]);
+  #pragma omp parallel for collapse(3)
+  for(int l = 0; l < nfields; l++)
     for(size_t i=0;i<PointsS;i++)
       for(size_t j=0; j<PointsS;j++){
-        phase_sliced[i][j]= atan2(psi[2*whichPsi+1][i][j][int(PointsSS/2)+nghost], psi[2*whichPsi][i][j][int(PointsSS/2)+nghost]);
+        phase_sliced[l][i][j]= atan2(psi[2*l+1][i][j][int(PointsSS/2)+nghost], psi[2*l][i][j][int(PointsSS/2)+nghost]);
       }
   #pragma omp barrier
-  print2(phase_sliced,fileout);
+  print3(phase_sliced,fileout);
 }
 // Virtual because for the NFW case (for example) you want to compute radial functions starting from the center of the box and not the maximum
 multi_array<double,2> domain3::profile_density(double density_max, int whichPsi){ // It computes the averaged density and energy as function of distance from soliton
   //we need to specify what is the maximum number of points we want to calculate the profile from the center {xmax,ymax,zmax}
   //You have to call find_maximum() first in order to set the maximum values to the class
-
   // note: results only make sense on node 0
-
   // vector is easier for the MPI to handle
   //vector that cointains the binned density profile {d, rho(d), E_kin(d), E_pot(d), Phi(d), phase(d)}
   vector<vector<double>> binned(6,vector<double>(pointsmax, 0));// Initialize vector of vectors, all with zero entries
 
   //auxiliary vector to count the number of points in each bin, needed for average
   vector<int> count(pointsmax, 0); // Initialize vector of dimension pointsmax, with 0s
-  // maxz is within the subgrid itself; the actual maxz of the full grid would be maxz+ maxNode*PointsSS
-  int extrak;
-  if(mpi_bool==true){
-    extrak= PointsSS*(world_rank-maxNode); // Correct
-  }
-  else {
-    extrak=0;
-  }
-
+  // maxz does not have ghost cells
+  int extrak = PointsSS*world_rank -nghost;
   #pragma omp parallel for collapse(3)
   for(int i=0;i<PointsS;i++)
     for(int j=0; j<PointsS;j++)
       for(int k=nghost; k<PointsSS+nghost;k++){
         int Dx=maxx-(int)i; if(abs(Dx)>PointsS/2){Dx=abs(Dx)-(int)PointsS;} // workaround which takes into account the periodic boundary conditions
         int Dy=maxy-(int)j; if(abs(Dy)>PointsS/2){Dy=abs(Dy)-(int)PointsS;} // periodic boundary conditions!
-        int Dz=maxz-(int)k-extrak; if(abs(Dz)>PointsS/2){Dz=abs(Dz)-(int)PointsS;} // periodic boundary conditions!
+        int Dz=maxz-(int)k+extrak; if(abs(Dz)>PointsS/2){Dz=abs(Dz)-(int)PointsS;} // periodic boundary conditions!
         int distance=pow(Dx*Dx+Dy*Dy+Dz*Dz, 0.5);
         if(distance<pointsmax){
           //adds up all the points in the 'shell' with radius = distance
@@ -168,12 +156,13 @@ multi_array<double,2> domain3::profile_density(double density_max, int whichPsi)
   // For the phase, I take only one ray
   // Only do this on the node that contains the maximum point
   if(world_rank==maxNode || mpi_bool==false){
+    int maxz_node = maxz - PointsSS*world_rank +nghost;//maxz in max node with ghost cell
     for(int i=0;i<PointsS;i++){
       int distance =maxx-(int)i; if(abs(distance)>PointsS/2){distance=abs(distance)-(int)PointsS;} // workaround which takes into account the periodic boundary conditions
       distance = abs(distance);
       if(distance<pointsmax){
           //Takes only one ray passing from the center of the possible soliton
-          binned[5][distance] = atan2(psi[2*whichPsi+1][i][maxy][maxz], psi[2*whichPsi][i][maxy][maxz]);
+          binned[5][distance] = atan2(psi[2*whichPsi+1][i][maxy][maxz_node], psi[2*whichPsi][i][maxy][maxz_node]);
       }
     }
   }
@@ -226,25 +215,25 @@ multi_array<double,2> domain3::profile_density(double density_max, int whichPsi)
 
 void domain3::snapshot(double stepCurrent){//Outputs the full density profile; if 3dgrid is false, it outputs just sliced density
   cout.setf(ios_base::fixed);
-  double Ek_full = e_kin_full1(0);
-  double Ek_full1 = e_kin_full1(1);
-  double Epot_full = full_energy_pot(0);
-  double Epot_full1 = full_energy_pot(1);
-  double M_tot = total_mass(0);
-  double M_tot1 = total_mass(1);
-  if(world_rank==0){
-  timesfile_grid<<"{"<<tcurrent<<","<<maxdensity<<","<<maxx<<"," <<maxy<<","<<maxz<<","
-      <<Ek_full<<","<<Ek_full1<<","<<Epot_full << ","<<Epot_full1<<","<<M_tot<< ","<<M_tot1<<"}"<<endl;
+  if(world_rank==0)
+    timesfile_grid<<"{"<<tcurrent<<","<<maxdensity<<","<<maxx<<"," <<maxy<<","<<maxz;
       // if(stepCurrent<numsteps){
-      timesfile_grid<<","<<flush;
-      cout<<"Output results"<<endl;
+  for(int l=0;l<nfields;l++){
+    double Ek_full = e_kin_full1(l);
+    double Epot_full = full_energy_pot(l);
+    double M_tot = total_mass(l);
+    if(world_rank==0){
+      timesfile_grid<<","<<Ek_full<<","<<Epot_full<<","<<M_tot;
+      // if(stepCurrent<numsteps){
+    }
+  }
+  if(world_rank==0){
+    timesfile_grid<<"},\n"<<flush;
+    cout<<"Output results"<<endl;
   }
   cout.setf(ios_base::fixed);
-  outputSlicedDensity(profile_sliced,0); // Output of both fields
-  profile_sliced<<","<<flush;
-  cout.setf(ios_base::fixed);
-  outputSlicedDensity(profile_sliced1,1);
-  profile_sliced1<<","<<flush;
+  outputSlicedDensity(profile_sliced); // Output of both fields
+  profile_sliced<<"\n"<<","<<flush;
   // } //if it's not the last timeshot put a comma { , , , , }
 /*            if(Grid3D == true){
       ofstream grid;
@@ -256,71 +245,46 @@ void domain3::snapshot(double stepCurrent){//Outputs the full density profile; i
 */
 //            else {
   if(world_rank==maxNode || mpi_bool==false){
-      if(phaseGrid == true){
-          cout.setf(ios_base::fixed);
-          outputPhaseSlice(phase_slice,0);
-          phase_slice<<","<<flush;
-          cout.setf(ios_base::fixed);
-          outputPhaseSlice(phase_slice1,1);
-          phase_slice1<<","<<flush;
-          }
-      // if(stepCurrent< numsteps){
-      // } //if it's not the last timeshot put a comma { , , , , }
-//           }
+    if(phaseGrid == true){
+      cout.setf(ios_base::fixed);
+      outputPhaseSlice(phase_slice);
+      phase_slice<<"\n"<<","<<flush;
+    }
   }
-//              cout<<"output full grid"<<endl;
 }
 
-  void domain3::snapshot_profile(double stepCurrent){// Outputs only few relevant information like mass, energy, radial profiles
-    cout.setf(ios_base::fixed);
-    double maxdensity0 = find_maximum(0);
-    int maxx0 = maxx;
-    int maxy0 = maxy;
-    int maxz0 = maxz;
-    multi_array<double,2> profile = profile_density(maxdensity0,0);
-    if(world_rank==0){ print2(profile,profilefile);}
-    
-    double maxdensity1 = find_maximum(1);
-    int maxx1 = maxx;
-    int maxy1 = maxy;
-    int maxz1 = maxz;
-    // cout<<"before profile = "<< time(NULL)- beginning <<endl;
-    // profile_density contains MPI_SEND and MPI_RECEIVE sort of functions, so it should run in all nodes nevertheless
-    profile = profile_density(maxdensity1,1);
-    if(world_rank==0){ print2(profile,profilefile1);}
-    
-    // The total quantities computation needs to be run on all nodes
-    long double e_pot_full = full_energy_pot(0);
-    long double e_kin_full_1 = full_energy_kin(0);
-    long double e_kin_full_FT = e_kin_full1(0);
-    long double M_tot = total_mass(0);
-    long double e_pot_full1 = full_energy_pot(1);
-    long double e_kin_full_11 = full_energy_kin(1);
-    long double e_kin_full_FT1 = e_kin_full1(1);
-    long double M_tot1 = total_mass(1);
+void domain3::snapshot_profile(double stepCurrent){// Outputs only few relevant information like mass, energy, radial profiles
+  cout.setf(ios_base::fixed);
+  if(world_rank==0)
+    profilefile<<"{";
+  for(int l=0;l<nfields;l++){
+    double maxdensityn = find_maximum(l);
+    int maxxn = maxx;
+    int maxyn = maxy;
+    int maxzn = maxz;
+    multi_array<double,2> profile = profile_density(maxdensityn,l);
     if(world_rank==0){
-    timesfile_profile<<"{"<<tcurrent<<","<<maxdensity0<<","<<maxx0<<"," <<maxy0<<","<<maxz0<<","
-        <<e_kin_full_FT<< ","<< e_kin_full_1 << "," << e_pot_full <<","<<e_kin_full_FT + e_pot_full
-        << ","<< e_kin_full_1 + e_pot_full <<","<< M_tot<<","<<maxdensity1<<","<<maxx1<<"," <<maxy1<<","<<maxz1<<","
-        <<e_kin_full_FT1<< ","<< e_kin_full_11 << "," << e_pot_full1 <<","<<e_kin_full_FT1 + e_pot_full1
-        << ","<< e_kin_full_11 + e_pot_full1 <<","<< M_tot1<<","<< e_kin_full_FT1 + e_pot_full1 + e_kin_full_FT + e_pot_full<<"}"<<endl;
-    // if(stepCurrent<numsteps){
-    timesfile_profile<<","<<flush;
-    profilefile<<","<<flush;
-    profilefile1<<","<<flush;
+      print2(profile,profilefile);
+      if(l<nfields-1)
+        profilefile<<","<<flush;
     }
-    // } //if it's not the last timeshot put a comma { , , , , }
+  }
+  if(world_rank==0)
+    profilefile<<"}\n" <<","<<flush;
+  
+  // The total quantities computation needs to be run on all nodes
+  if(world_rank==0)
+    timesfile_profile<<"{"<<tcurrent<<","<<maxdensity<<","<<maxx<<"," <<maxy<<","<<maxz;
+  for(int l=0;l<nfields;l++){
+    double Ek_full = e_kin_full1(l);
+    double Epot_full = full_energy_pot(l);
+    double M_tot = total_mass(l);
+    if(world_rank==0){
+      timesfile_profile<<","<<Ek_full<<","<<Epot_full<<","<<M_tot;
+      // if(stepCurrent<numsteps){
+    }
+  }
+  if(world_rank==0){
+    timesfile_profile<< "}\n" <<","<<flush;
+  }
 }
-        // void outputfullPsi_Im(ofstream& fileout){// Outputs the full 3D imaginary psi, for backup purposes
-        //   multi_array<double,3> psi_store(extents[PointsS][PointsS][PointsSS]);
-        //   #pragma omp parallel for collapse(3)
-        //   for(size_t i=0;i<PointsS;i++)
-        //     for(size_t j=0; j<PointsS;j++)
-        //       for(size_t k=nghost; k<PointsSS+nghost;k++){
-        //         psi_store[i][j][k]= psi[1][i][j][k];
-        //       }
-        //   #pragma omp barrier
-        //   fileout.open(outputname+"psiIm_final_"+to_string(world_rank)+".txt"); fileout.setf(ios_base::fixed);
-        //   print3_cpp(psi_store,fileout);
-        //   fileout.close();
-        // }

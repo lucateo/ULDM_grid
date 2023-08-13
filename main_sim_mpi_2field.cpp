@@ -1,4 +1,6 @@
 #include "uldm_mpi_2field.h"
+#include <boost/multi_array.hpp>
+#include <cstdlib>
 #include <string>
 
 
@@ -7,11 +9,25 @@
 // Remember to change string_outputname according to where you want to store output files, or
 // create the directory BEFORE running the code
 int main(int argc, char** argv){
+  // Inputs
+  string mpi_string = argv[1]; // string to check if mpirun is used, put 1 to use mpi
+  int Nx = atof(argv[2]);                       //number of gridpoints
+  double Length= atof(argv[3]);                 //box Length in units of m
+  int numsteps= atof(argv[4]);                   //Number of steps
+  double dt= atof(argv[5]);                     //timeSpacing,  tf/Nt
+  int num_fields = atof(argv[6]); // number of fields
+  int outputnumb=atof(argv[7]);// Number of outputs for the sliced (if Grid3D==false) or full 3D grid (if Grid3D==true) density profile (for animation)
+  int outputnumb_profile=atof(argv[8]);//number of outputs for radial profiles
+  string initial_cond = argv[9];
+  string start_from_backup = argv[10]; // true or false, depending on whether you want to start from a backup or not
+  
+  // mpi 
   int provided;
   int world_rank;
   int world_size;
   int nghost=2; // number of ghost cells on the psi grids, 2 is the usual and the code will probably break with any other value
-  bool mpirun_flag = false;
+  bool mpirun_flag;
+  istringstream(mpi_string)>>mpirun_flag;
   if(mpirun_flag == true){
     MPI_Init_thread(&argc, &argv, MPI_THREAD_FUNNELED, &provided);
     fftw_init_threads();
@@ -34,7 +50,6 @@ int main(int argc, char** argv){
   // srand(time(NULL));
   //srand(42);
 
-  int Nx = atof(argv[1]);                       //number of gridpoints
   // keep all the boxes the same height for simplicity, so change if not divisible
   if(mpirun_flag==true && Nx%world_size!=0){
         if(world_rank==0){ cout<<"warning: space steps not divisible, adjusting"<<endl;}
@@ -43,52 +58,55 @@ int main(int argc, char** argv){
   }
   // and as a result, points in the short direction
   int Nz= (Nx)/world_size;
-  double Length= atof(argv[2]);                 //box Length in units of m
-  int numsteps= atof(argv[3]);                   //Number of steps
-  double dt= atof(argv[4]);                     //timeSpacing,  tf/Nt
-  double ratio_m = atof(argv[5]); // ratio between the two masses
-
-  int outputnumb=atof(argv[6]);// Number of outputs for the sliced (if Grid3D==True) or full 3D grid (if Grid3D==False) density profile (for animation)
-  int outputnumb_profile=atof(argv[7]);//number of outputs for radial profiles
-
   double dx = Length/Nx;                            //latticeSpacing, dx=L/Nx, L in units of m
   int Pointsmax = Nx/2; //Number of maximum points which are plotted in profile function
-
   // This is to tell which initial condition you want to run
-  string initial_cond = argv[8];
-
-  string start_from_backup = argv[9]; // true or false, depending on whether you want to start from a backup or not
   bool backup_bool = false;
   if (start_from_backup == "true")
     backup_bool = true;
+  multi_array<double, 1> ratio_mass(extents[num_fields]); // ratio of masses wrt field 0
+  ratio_mass[0] = 1.0; // ratio of mass of field 0 is always 1
 
+  // Apply initial conditions
   if (initial_cond == "levkov" ) {// Levkov initial conditions
-    if (argc > 12){
-      double Npart = atof(argv[10]); // Number of particles
-      double Npart1 = atof(argv[11]); // Number of particles
-      int vw = atof(argv[12]); // Velocity of particles
-      string outputname = "out_mpi/out_test/out_2fields_Levkov_nopsisqmean_Nx" + to_string(Nx) +"_rmasses_"+ to_string(ratio_m) + "_L_" + to_string(Length)
-        + "_Npart_" + to_string(Npart) + "_Npart1_" + to_string(Npart1) + "_vw_" + to_string(vw)+ "_";
-      domain3 D3(Nx,Nz,Length,ratio_m,numsteps,dt,outputnumb, outputnumb_profile, outputname, Pointsmax, world_rank,world_size,nghost, mpirun_flag);
+    if (argc > 10 +2*num_fields-1){
+      multi_array<double, 1> Nparts(extents[num_fields]);
+      string outputname = "out_mpi/out_test/out_2fields_Levkov_nopsisqmean_nfields_"+to_string(num_fields)+"_Nx" + to_string(Nx) + "_L_" + to_string(Length)
+        + "_";
+      for (int i=0; i<num_fields;i++){
+        Nparts[i] = atof(argv[11+i]); // Number of particles
+        outputname = outputname + "Npart"+to_string(i) +"_"+ to_string(Nparts[i]) + "_";
+      }
+      // 
+      domain3 D3(Nx,Nz,Length, num_fields,numsteps,dt,outputnumb, outputnumb_profile, outputname, Pointsmax, world_rank,world_size,nghost, mpirun_flag);
+      if(num_fields > 1){
+        for(int i=1; i<num_fields;i++){
+          ratio_mass[i] = atof(argv[10+num_fields-1+i]);
+        }
+      }
+      D3.set_ratio_masses(ratio_mass);
       D3.set_grid(false);
       D3.set_grid_phase(false); // It will output 2D slice of phase grid
       if(start_from_backup=="true")
         D3.initial_cond_from_backup();
       else
-        D3.set_waves_Levkov(Npart, Npart1, vw);
+        D3.set_waves_Levkov(Nparts, num_fields);
       D3.set_backup_flag(backup_bool);
       D3.solveConvDif();
     }
     else if (world_rank==0)
-      cout<<"You need 12 arguments to pass to the code: Nx, Length, tf, dt, ratio_mass, output_profile, output_profile_radial, initial_cond, start_from_backup, Npart, Npart1, vw" << endl;
+      cout<<"You need 9 +2*num_fields arguments to pass to the code: mpi_bool, Nx, Length, numsteps, dt, num_fields, output_profile, output_profile_radial, initial_cond, start_from_backup string, {Npart}, {ratio_masses}" << endl;
   }
   else if (initial_cond == "1Sol" ) {// 1 Soliton initial conditions
-    if (argc > 10){
-      double rc = atof(argv[10]); // radius of soliton
-      int whichpsi = atof(argv[11]); // radius of soliton
-      string outputname = "out_mpi/out_test/out_2fields_1Sol_nopsisqmean_Nx" + to_string(Nx) +"_rmasses_"+ to_string(ratio_m) + "_L_" + to_string(Length)
+    if (argc > 13){
+      double rc = atof(argv[11]); // radius of soliton
+      int whichpsi = atof(argv[12]); // Of which field you put the soliton
+      ratio_mass[whichpsi] = atof(argv[13]);
+      string outputname = "out_mpi/out_test/out_2fields_1Sol_nopsisqmean_Nx" + to_string(Nx) +"_rmass_"
+        + to_string(ratio_mass[whichpsi]) + "_L_" + to_string(Length)
         + "_rc_" + to_string(rc)+ "_field_"+to_string(whichpsi) + "_";
-      domain3 D3(Nx,Nz,Length,ratio_m,numsteps,dt,outputnumb, outputnumb_profile, outputname, Pointsmax, world_rank,world_size,nghost, mpirun_flag);
+      domain3 D3(Nx,Nz,Length,num_fields,numsteps,dt,outputnumb, outputnumb_profile, outputname, Pointsmax, world_rank,world_size,nghost, mpirun_flag);
+      D3.set_ratio_masses(ratio_mass);
       D3.set_grid(false);
       D3.set_grid_phase(false); // It will output 2D slice of phase grid
       if(start_from_backup=="true")
@@ -99,16 +117,16 @@ int main(int argc, char** argv){
       D3.solveConvDif();
     }
     else if (world_rank==0)
-      cout<<"You need 10 arguments to pass to the code: Nx, Length, tf, dt, ratio_mass, output_profile, output_profile_radial, initial_cond, start_from_backup, rc" << endl;
+      cout<<"You need 13 arguments to pass to the code: mpi_bool, Nx, Length, numsteps, dt, num_fields, output_profile, output_profile_radial, initial_cond, start_from_backup string, rc, which_field, ratio_mass[which_field]" << endl;
   }
   else if (initial_cond == "Schive" ) {// Schive initial conditions
-    if (argc > 12){
-      double rc = atof(argv[10]); // radius of soliton
-      int Nsol = atof(argv[11]); // Number of solitons
-      double length_lim = atof(argv[12]); // Length lim of span of solitons
-      string outputname = "out_mpi/out_test/out_2fields_Schive_nopsisqmean_Nx" + to_string(Nx) +"_rmasses_"+ to_string(ratio_m) + "_L_" + to_string(Length)
+    if (argc > 13){
+      double rc = atof(argv[11]); // radius of soliton
+      int Nsol = atof(argv[12]); // Number of solitons
+      double length_lim = atof(argv[13]); // Length lim of span of solitons
+      string outputname = "out_mpi/out_test/out_2fields_Schive_nopsisqmean_Nx" + to_string(Nx) + "_L_" + to_string(Length)
         + "_rc_" + to_string(rc)+ "_Nsol_" + to_string(Nsol)+ "_Llim_" + to_string(length_lim)+"_";
-      domain3 D3(Nx,Nz,Length,ratio_m,numsteps,dt,outputnumb, outputnumb_profile, outputname, Pointsmax, world_rank,world_size,nghost,mpirun_flag);
+      domain3 D3(Nx,Nz,Length,num_fields,numsteps,dt,outputnumb, outputnumb_profile, outputname, Pointsmax, world_rank,world_size,nghost,mpirun_flag);
       D3.set_grid(false);
       D3.set_grid_phase(false); // It will output 2D slice of phase grid
       if(start_from_backup=="true")
@@ -119,17 +137,17 @@ int main(int argc, char** argv){
       D3.solveConvDif();
     }
     else if (world_rank==0)
-      cout<<"You need 12 arguments to pass to the code: Nx, Length, tf, dt, ratio_mass, output_profile, output_profile_radial, initial_cond, start_from_backup, rc, Nsol, length_lim" << endl;
+      cout<<"You need 13 arguments to pass to the code: mpi_bool, Nx, Length, numsteps, dt, num_fields, output_profile, output_profile_radial, initial_cond, start_from_backup string, rc, Num_sol, length_lim" << endl;
   }
   else if (initial_cond == "Mocz" ) {// Mocz initial conditions
-    if (argc > 13){
-      double min_radius = atof(argv[10]); //min radius of soliton
-      double max_radius = atof(argv[11]); //max radius of soliton
-      int Nsol = atof(argv[12]); // Number of solitons
-      double length_lim = atof(argv[13]); // Length lim of span of solitons
-      string outputname = "out_mpi/out_test/out_2fields_Mocz_nopsisqmean_Nx" + to_string(Nx) +"_rmasses_"+ to_string(ratio_m) + "_L_" + to_string(Length)
+    if (argc > 14){
+      double min_radius = atof(argv[11]); //min radius of soliton
+      double max_radius = atof(argv[12]); //max radius of soliton
+      int Nsol = atof(argv[13]); // Number of solitons
+      double length_lim = atof(argv[14]); // Length lim of span of solitons
+      string outputname = "out_mpi/out_test/out_2fields_Mocz_nopsisqmean_Nx" + to_string(Nx) + "_L_" + to_string(Length)
         + "_rmin_" + to_string(min_radius)+"_rmax_" +to_string(max_radius)+ "_Nsol_" + to_string(Nsol)+ "_Llim_" + to_string(length_lim)+"_";
-      domain3 D3(Nx,Nz,Length,ratio_m,numsteps,dt,outputnumb, outputnumb_profile, outputname, Pointsmax, world_rank,world_size,nghost,mpirun_flag);
+      domain3 D3(Nx,Nz,Length,num_fields,numsteps,dt,outputnumb, outputnumb_profile, outputname, Pointsmax, world_rank,world_size,nghost,mpirun_flag);
       D3.set_grid(false);
       D3.set_grid_phase(false); // It will output 2D slice of phase grid
       if(start_from_backup=="true")
@@ -140,15 +158,15 @@ int main(int argc, char** argv){
       D3.solveConvDif();
     }
     else if (world_rank==0)
-      cout<<"You need 13 arguments to pass to the code: Nx, Length, tf, dt, ratio_mass, output_profile, output_profile_radial, initial_cond, start_from_backup, rmin, rmax, Nsol, length_lim" << endl;
+      cout<<"You need 14 arguments to pass to the code: mpi_bool, Nx, Length, numsteps, dt, num_fields, output_profile, output_profile_radial, initial_cond, start_from_backup string, rmin, rmax, Nsol, length_lim" << endl;
   }
   else if (initial_cond == "deterministic" ) {// Mocz initial conditions
-    if (argc > 11){
-      double rc = atof(argv[10]); //radius of soliton
-      int Nsol = atof(argv[11]); // Number of solitons, should not surpass 30
-      string outputname = "out_mpi/out_test/out_2fields_deterministic_nopsisqmean_Nx" + to_string(Nx) +"_rmasses_"+ to_string(ratio_m) + "_L_" + to_string(Length)
+    if (argc > 12){
+      double rc = atof(argv[11]); //radius of soliton
+      int Nsol = atof(argv[12]); // Number of solitons, should not surpass 30
+      string outputname = "out_mpi/out_test/out_2fields_deterministic_nopsisqmean_Nx" + to_string(Nx) + "_L_" + to_string(Length)
         + "_rc_" + to_string(rc)+ "_Nsol_" + to_string(Nsol)+"_";
-      domain3 D3(Nx,Nz,Length,ratio_m,numsteps,dt,outputnumb, outputnumb_profile, outputname, Pointsmax, world_rank,world_size,nghost,mpirun_flag);
+      domain3 D3(Nx,Nz,Length,num_fields,numsteps,dt,outputnumb, outputnumb_profile, outputname, Pointsmax, world_rank,world_size,nghost,mpirun_flag);
       D3.set_grid(false);
       D3.set_grid_phase(false); // It will output 2D slice of phase grid
       if(start_from_backup=="true")
@@ -159,10 +177,10 @@ int main(int argc, char** argv){
       D3.solveConvDif();
     }
     else if (world_rank==0)
-      cout<<"You need 11 arguments to pass to the code: Nx, Length, tf, dt, ratio_mass, output_profile, output_profile_radial, initial_cond, start_from_backup, rc, Nsol" << endl;
+      cout<<"You need 12 arguments to pass to the code: mpi_bool, Nx, Length, numsteps, dt, num_fields, output_profile, output_profile_radial, initial_cond, start_from_backup string, rc, Nsol" << endl;
   }
   else if (world_rank==0){
-    cout<< "String in 5th position does not match any possible initial conditions; possible initial conditions are:" << endl;
+    cout<< "String in 9th position does not match any possible initial conditions; possible initial conditions are:" << endl;
     cout<< "Schive , Mocz , deterministic , levkov, 1Sol" <<endl;
   }
   if(mpirun_flag==true){

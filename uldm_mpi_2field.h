@@ -23,9 +23,28 @@ using namespace boost;
 
 // extern tells the compiler that the function is definedsomewhere else (in this case, utilities.cpp),
 // to avoid redefinition errors; couple this with ifndef statement
-extern double fRand(double fMin, double fMax); //random double betwenn fMin and fMax
+//random double betwenn fMin and fMax
+extern double fRand(double fMin, double fMax); 
 // shift function for fourier transform conventions, this one has minus signs
 extern double shift(float i, float N);
+//For Levkov waves initial conditions, Np is the number of particles and k2 the squared momentum
+extern double P_spec(double k2, double Np);
+// cyclic boundary conditions
+extern int cyc(int ar, int le);
+// 3 point order derivative, mostly for computing kinetic energy
+extern double derivative_3point(double f1_plus, double f1_minus, double f2_plus, 
+                                double f2_minus, double f3_plus, double f3_minus);
+  
+// Soliton profile in grid units
+extern double psi_soliton(double r_c, double r);
+
+/////////////////////  stuff for the ghosts ///////////////////////////////
+// New function to send
+extern void sendg( multi_array<double,4>  &grid,int ii, int world_rank, int world_size, int dir, int nghost);
+// New function to receive
+extern void receiveg(multi_array<double,4> &grid,int ii,  int world_rank, int world_size, int dir, int nghost);
+// MPI stuff to sort out the ghosts
+extern void transferghosts( multi_array<double,4> &gr,int ii, int world_rank, int world_size, int nghost);// Class for the Fourier Transform
 
 // File printing functions; template class should be defined in the header
 template<class T1>
@@ -49,23 +68,25 @@ void print2(multi_array<T,2> & v1,  U & filename){ //It prints a 2D array in the
 
 template<class T, class U>
 void print3(multi_array<T,3> & v1,  U & filename){ //It prints a 3D array in the output file filename
-    int Nx=dimension(v1);
-        filename<<"{";
-            for(int i = 0;i < Nx; i++){
-        filename<<"{";
-        for(int j = 0;j < Nx; j++){
-        filename<<"{";
-            for(int k = 0;k < Nx; k++){
-                      filename<<v1[i][j][k];
-              if(k!=(Nx-1)){filename<<",";}
-        }
-        filename<<"}";
-        if(j!=(Nx-1)){filename<<",";}
+  int Nx=v1.shape()[0];
+  int Ny=v1.shape()[1];
+  int Nz=v1.shape()[2];
+  filename<<"{";
+  for(int i = 0;i < Nx; i++){
+    filename<<"{";
+    for(int j = 0;j < Ny; j++){
+      filename<<"{";
+      for(int k = 0;k < Nz; k++){
+        filename<<v1[i][j][k];
+        if(k!=(Nz-1)){filename<<",";}
+      }
+      filename<<"}";
+      if(j!=(Ny-1)){filename<<",";}
     }
     filename<<"}";
-        if(i!=(Nx-1)){filename<<",";}
-      }
-    filename<< " } ";
+      if(i!=(Nx-1)){filename<<",";}
+  }
+  filename<< " } ";
 }
 
 template<class T, class U>
@@ -86,9 +107,9 @@ void print3_cpp(multi_array<T,3> & v1,  U & filename){
     }
     }
 }
-template<class T, class U> //Outputs the full psi with the to fields
+template<class T, class U> //Outputs the full psi with the n fields
 void print4_cpp(multi_array<T,4> & v1,  U & filename, int nghost){
-  int Nl = v1.shape()[0]; //Dimension along the first argument
+  int Nl = v1.shape()[0]; //Dimension along the first argument (2*nfields)
   int Nx=v1.shape()[1];
   int Ny=v1.shape()[2];
   int Nz=v1.shape()[3]; //Nz contains the 2*nghost cells
@@ -104,24 +125,6 @@ void print4_cpp(multi_array<T,4> & v1,  U & filename, int nghost){
     }
   }
 }
-//For Levkov waves initial conditions, Np is the number of particles and k2 the squared momentum
-extern double P_spec(double k2, double Np);
-// cyclic boundary conditions
-extern int cyc(int ar, int le);
-// 3 point order derivative, mostly for computing kinetic energy
-extern double derivative_3point(double f1_plus, double f1_minus, double f2_plus, 
-                                double f2_minus, double f3_plus, double f3_minus);
-  
-// Soliton profile in grid units
-extern double psi_soliton(double r_c, double r);
-
-/////////////////////  stuff for the ghosts ///////////////////////////////
-// New function to send
-extern void sendg( multi_array<double,4>  &grid,int ii, int world_rank, int world_size, int dir, int nghost);
-// New function to receive
-extern void receiveg(multi_array<double,4> &grid,int ii,  int world_rank, int world_size, int dir, int nghost);
-// MPI stuff to sort out the ghosts
-extern void transferghosts( multi_array<double,4> &gr,int ii, int world_rank, int world_size, int nghost);// Class for the Fourier Transform
 
 // No ghosts in the z-direction on these grids
 class Fourier{
@@ -137,6 +140,7 @@ class Fourier{
   bool mpi_bool;
 
   public:
+    ////////////////// Everything is defined in fourier.cpp ///////////////////////////////////
     Fourier(); //default constructor
     Fourier(size_t PS, size_t PSS, int WR, int WS, bool mpi_flag); //constructor
     ~Fourier(); //destructor
@@ -144,31 +148,30 @@ class Fourier{
     void calculateFT();
     // Calculate the unnormalized inverse FT, remember to divide the output by Nx^3
     void calculateIFT();
-
-  // A sample grid for testing purposes
-  void inputsamplegrid();
-  // Insert on initial conditions the Levkov waves
-  void inputSpectrum(double Length, double Npart, double vw);
-  //functions needed for the evolution
-  //input psi on the array for fftw, note the shift due to the ghost cells
-  // whichPsi should be 0 or 1 depending on which field
-  void inputpsi(multi_array<double,4> &psi, int nghost, int whichPsi);
-  //function for putting -k^2 factor; more precisely, psi->exp(-i c_alpha dt k^2/2 ) psi
-  void kfactorpsi(double tstep, double Length, double calpha, int whichPsi, double r);
-  // Put on psi the result of Fourier transforms
-  void transferpsi(multi_array<double,4> &psi, double factor, int nghost, int whichPsi);  
-  // input |psi|^2 to the memory that will be FTed
-  // virtual, for inheritance (in case one wants to use an external potential
-  virtual void inputPhi(multi_array<double,4> &psi_in, int nghost);
-  //function for putting -1/k^2 factor on the output of the FT
-  // needed for solving the Poisson equation to get Phi
-  void kfactorPhi(double Length);  
-  // take the result of calculating Phi from the Poisson equation and put it onto a grid
-  // Note the normalisation factor here from the inverse FT
-  void transferPhi(multi_array<double,3> &Phi, double factor);
-  //function for the total kinetic energy using the FT
-  // note this does not sum up the values on different nodes
-  double e_kin_FT(multi_array<double,4> &psi, double Length,int nghost, int whichPsi);
+    // A sample grid for testing purposes
+    void inputsamplegrid();
+    // Insert on initial conditions the Levkov waves
+    void inputSpectrum(double Length, double Npart);
+    //functions needed for the evolution
+    //input psi on the array for fftw, note the shift due to the ghost cells
+    // whichPsi should be 0 or 1 depending on which field
+    void inputpsi(multi_array<double,4> &psi, int nghost, int whichPsi);
+    //function for putting -k^2 factor; more precisely, psi->exp(-i c_alpha dt k^2/2 ) psi
+    void kfactorpsi(double tstep, double Length, double calpha, int whichPsi, multi_array<double, 1> ratio_mass);
+    // Put on psi the result of Fourier transforms
+    void transferpsi(multi_array<double,4> &psi, double factor, int nghost, int whichPsi);  
+    // input |psi|^2 to the memory that will be FTed
+    // virtual, for inheritance (in case one wants to use an external potential
+    virtual void inputPhi(multi_array<double,4> &psi_in, int nghost, int nfields);
+    //function for putting -1/k^2 factor on the output of the FT
+    // needed for solving the Poisson equation to get Phi
+    void kfactorPhi(double Length);  
+    // take the result of calculating Phi from the Poisson equation and put it onto a grid
+    // Note the normalisation factor here from the inverse FT
+    void transferPhi(multi_array<double,3> &Phi, double factor);
+    //function for the total kinetic energy using the FT
+    // note this does not sum up the values on different nodes
+    double e_kin_FT(multi_array<double,4> &psi, double Length,int nghost, int whichPsi);
 };
 
 
@@ -179,43 +182,38 @@ class domain3{
   protected:
     multi_array<double,4> psi;  // contains the n fields
     int nghost;                 // number of ghost layers above and below in the z direction
-    bool mpi_bool;
+    bool mpi_bool; // If true, the domain is distributed over MPI
     int nfields;                 // number of fields
     multi_array<double,3> Phi;
-    double ratio_mass; // Ratio between the two masses of ULDM
-    size_t PointsS;
+    multi_array<double,1> ratio_mass; // Ratio between the masses of the ULDM wrt field 0
+    size_t PointsS; // number of points in the long direction
     size_t PointsSS; // number of points in the short direction, not including ghost cells
-    double Length;
-    // double tf;
+    double Length; // Physical length of the domain
     int numsteps; // Number of steps, adaptive timestep case
-    double dt;
-    double deltaX;
+    double dt; // Initial time step
+    double deltaX; // Physical grid spacing
     int numoutputs; // Number of outputs for the sliced (if Grid3D==True) or full 3D grid (if Grid3D==False) density profile (for animation)
     int numoutputs_profile; //number of outputs for the radial profiles
 
-    string outputname;
+    string outputname; // Name of the output file
     Fourier fgrid;               //for the FT
 
     multi_array<double,1> ca;     //vectors that store the numerical values of the coefficients to step forward
     multi_array<double,1> da;
-
     multi_array<double,1> jumps;  //output timeshots contained in 'jumps'
     multi_array<double,1> jumps_profile;  //output timeshots contained in 'jumps_profile'
 
-    ofstream runinfo;
+    ofstream runinfo; // Output file for the run information (grid points, length etc.)
     ofstream profilefile; // Output file for radial profiles of density, energies etc.
     ofstream profile_sliced; // Output file for 2D projected profile
     ofstream phase_slice; // Slice for the phase
-    ofstream profilefile1; // Output file for radial profiles of density, energies etc. of field 1
-    ofstream profile_sliced1; // Output file for 2D projected profile of field 1
-    ofstream phase_slice1; // Slice for the phase of field 1
     ofstream timesfile_grid;  //output file for grid
     ofstream timesfile_profile;  //output file for useful information (total energies etc.)
     ofstream info_initial_cond;  //output file for initial condition details
     int snapshotcount=0;          //variable to number the snapshots
     bool Grid3D = false; // If true, it outputs the full density on the 3D grid; if false (recommended), it outputs the 2D projection of the density profile
     bool phaseGrid = false; // If true, it outputs the phase slice passing on the center
-    bool start_from_backup = false; // If true, starts from the backup files, not adapted for MPI yet
+    bool start_from_backup = false; // If true, starts from the backup files
     int pointsmax =0;
     int maxx;       //location x,y,z of the max density in the grid (for a certain field)
     int maxy;
@@ -231,75 +229,73 @@ class domain3{
     int world_size;
 
     public:
-        domain3(size_t PS,size_t PSS, double L, double r_m, int Numsteps, double DT, int Nout, int Nout_profile, 
-            string Outputname, int pointsm, int WR, int WS, int Nghost, bool mpi_bool);
-          // nghost(Nghost),
-          // psi(extents[4][PS][PS][PSS+2*Nghost]), //real and imaginary parts are stored consequently, i.e. psi[0]=real part psi1 and psi[1]=imaginary part psi1, then the same for psi2
-          // Phi(extents[PS][PS][PSS]),
-          // ratio_mass(r_m),
-          // fgrid(PS,PSS,WR,WS), // class for Fourier trasform, defined above
-          // ca(extents[8]),
-          // da(extents[8]),
-          // PointsS(PS),
-          // PointsSS(PSS),
-          // Length(L),
-          // dt(DT),
-          // // tf(Tf),
-          // numsteps(Numsteps),
-          // pointsmax(pointsm),
-          // numoutputs(Nout),
-          // numoutputs_profile(Nout_profile),
-          // outputname(Outputname),
-          // jumps(extents[Nout+1]), // vector whose length corresponds to the outputs in time
-          // jumps_profile(extents[Nout_profile+1]), // vector whose length corresponds to the outputs in time for profile
-          // world_rank(WR),
-          // world_size(WS)
-          // {
-          //   deltaX=Length/PointsS;
-          //   // stepping numbers, as defined in axionyx documentation
-          //   ca[0]=0.39225680523878;   ca[1]=0.51004341191846;   ca[2] =-0.47105338540976; ca[3]=0.06875316825251;    ca[4]=0.06875316825251;    ca[5]=-0.47105338540976;  ca[6]=0.51004341191846;   ca[7]=0.39225680523878;
-          //   da[0]=0.784513610477560;  da[1]=0.235573213359359;  da[2]=-1.17767998417887;  da[3]=1.3151863206839023;  da[4]=-1.17767998417887;   da[5]=0.235573213359359;  da[6]=0.784513610477560;  da[7]=0;
-          // }; // constructor
-
-        domain3 (); //default constructor
-        ~domain3(); //destructor
-        void openfiles();
-        void openfiles_backup();
-        // Considering I am implementing the possbility to use backups, this function closes files
-        // WITHOUT putting a final }; if one wants to read these arrays with a program (Mathematica etc.),
-        // one should load those arrays and put a final }
-        void closefiles();
-        // It stores run output info
-        virtual void exportValues();
-        void setoutputs(double t_ini=0);
-        // fileout should have a different name on each node
-        void outputfulldensity(ofstream& fileout,int whichPsi);
-        void outputfullPhi(ofstream& fileout);
-        // Outputs the full 3D psi, both fields, for backup purposes
-        void outputfullPsi(ofstream& fileout);
-
-        void outputSlicedDensity(ofstream& fileout, int whichPsi);
-        // Outputs a 2D slice of the phase
-        void outputPhaseSlice(ofstream& fileout, int whichPsi);
-    
-    long double psisqmean(int whichPsi);
-    double total_mass(int whichPsi);
-
-	// cycs not needed in the z direction, but do no harm
-    // note k is counted including ghosts
-    double energy_kin(const int & i, const int & j, const int & k, int whichPsi);
-        
-        // it computes the potential energy density at grid point (i,j,k)
-        // virtual for inheritance (external potential)
-        // note that Psi fields have ghost points Phi doesn't, k includes ghosts
-        virtual double energy_pot(const int & i, const int & j, const int & k, int whichPsi);
-
-        double e_kin_full1(int whichPsi);
-
+      /////////////////// The following defined in domain3_main.cpp /////////////////////
+      domain3(size_t PS,size_t PSS, double L, int nfields, int Numsteps, double DT, int Nout, int Nout_profile, 
+          string Outputname, int pointsm, int WR, int WS, int Nghost, bool mpi_flag);
+      domain3 (); //default constructor
+      ~domain3(); //destructor
+      void setoutputs(double t_ini=0);
+      long double psisqmean(int whichPsi);
+      double total_mass(int whichPsi);
+      // note k is counted including ghosts
+      double energy_kin(const int & i, const int & j, const int & k, int whichPsi);
+      // it computes the potential energy density at grid point (i,j,k)
+      // virtual for inheritance (external potential)
+      // note that Psi fields have ghost points Phi doesn't, k includes ghosts
+      virtual double energy_pot(const int & i, const int & j, const int & k, int whichPsi);
+      double e_kin_full1(int whichPsi);
       long double full_energy_kin(int whichPsi);
       long double full_energy_pot(int whichPsi);
+      double find_maximum(int whichPsi);
+      // update the ghosts on the psi grids, need to run this before the timeshots
+      void sortGhosts();
+      // psi -> exp(-i tstep d_alpha Phi) psi; does a step forward or with the opposite sign by changing the sign of tstep
+      virtual void expiPhi(double tstep, double da, int whichPsi);
+      void set_grid(bool grid_bool);//If false, domain3 outputs only the 2D sliced density profile
+      void set_grid_phase(bool bool_phase);//If false, domain3 does not output the phase slice
+      void set_backup_flag(bool bool_backup);//If false, no backup
+      void set_ratio_masses(multi_array<double,1> ratio_mass);//Sets the ratio between the masses of the ULDM wrt field 0
+      virtual void makestep(double stepCurrent, double tstep);
+      void solveConvDif();
+      void initial_cond_from_backup(); //Sets the initial conditions from the backup files, if backup_flag is true
 
-	double find_maximum(int whichPsi);
+      ////////////// The following are all defined in output_domain3.cpp /////////////////////////
+      void openfiles();
+      void openfiles_backup();
+      // Outputs the full density
+      void outputfulldensity(ofstream& fileout,int whichPsi);
+      // Outputs the full 3D phi, for backup purposes
+      void outputfullPhi(ofstream& fileout);
+      // Outputs the full 4D psi, every field, for backup purposes
+      void outputfullPsi(ofstream& fileout);
+      // Virtual because for the NFW case (for example) you want to compute radial functions starting from the center of the box and not the maximum
+      virtual multi_array<double,2> profile_density(double density_max, int whichPsi);
+      void snapshot(double stepCurrent);
+      void snapshot_profile(double stepCurrent);
+      // Outputs the projected 2D column density, every field
+      void outputSlicedDensity(ofstream& fileout);
+      // Outputs a 2D slice of the phase
+      void outputPhaseSlice(ofstream& fileout);
+      // Considering I am implementing the possbility to use backups, this function closes files
+      // WITHOUT putting a final }; if one wants to read these arrays with a program (Mathematica etc.),
+      // one should load those arrays and put a final }
+      void closefiles();
+      // It stores run output info
+      virtual void exportValues();
+      
+      //////////////// Initial conditions functions, defined in domain3_initial_cond.cpp ////////////////
+      // Initial condition with waves, test purposes
+      void initial_waves();
+      // Sets one soliton in the center of the box
+      void setInitialSoliton_1(double r_c, int whichPsi);
+      // sets many solitons as initial condition, with random core radius whose centers are confined in a box of length length_lim
+      void setManySolitons_random_radius(int num_Sol, double min_radius, double max_radius, double length_lim);
+      // sets many solitons as initial condition, with same core radius whose centers are confined in a box of length length_lim
+      void setManySolitons_same_radius(int num_Sol, double r_c, double length_lim);
+      // Deterministic initial condition
+      void setManySolitons_deterministic(double r_c, int num_sol);
+      // Levkov like initial conditions
+      void set_waves_Levkov(multi_array<double, 1> Npart, int dim);
 
        // functions below not adapted for MPI yet
  /*
@@ -326,34 +322,6 @@ class domain3{
         }
 */
 
-        // update the ghosts on the psi grids, need to run this before the timeshots
-        void sortGhosts();
-        // Virtual because for the NFW case (for example) you want to compute radial functions starting from the center of the box and not the maximum
-        virtual multi_array<double,2> profile_density(double density_max, int whichPsi);
-
-        // psi -> exp(-i tstep d_alpha Phi) psi; does a step forward or with the opposite sign by changing the sign of tstep
-        virtual void expiPhi(double tstep, double da, int whichPsi, double r);
-
-        void snapshot(double stepCurrent);
-        void set_grid(bool grid_bool);//If false, domain3 outputs only the 2D sliced density profile
-        void set_grid_phase(bool bool_phase);//If false, domain3 does not output the phase slice
-        void set_backup_flag(bool bool_backup);//If false, no backup
-
-        void snapshot_profile(double stepCurrent);
-
-        virtual void makestep(double stepCurrent, double tstep);
-        void solveConvDif();
-        void initial_cond_from_backup();
-        // Initial conditions functions
-        // Initial condition with waves, test purposes
-        void initial_waves();
-        void setInitialSoliton_1(double r_c, int whichPsi);
-        // sets many solitons as initial condition, with random core radius whose centers are confined in a box of length length_lim
-        void setManySolitons_random_radius(int num_Sol, double min_radius, double max_radius, double length_lim);
-        // sets many solitons as initial condition, with same core radius whose centers are confined in a box of length length_lim
-        void setManySolitons_same_radius(int num_Sol, double r_c, double length_lim);
-        void setManySolitons_deterministic(double r_c, int num_sol);
-        void set_waves_Levkov(double Npart, double Npart1, double vw);
 };
 
 #endif
