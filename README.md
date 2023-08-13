@@ -8,14 +8,14 @@ NFW = string which tells which initial condition to use (in this case, an extern
 true = bool, false if you do not want to start from a backup run, true if you want to start from a backup run.
 The others are parameters specific of the run (in this case, 0.57 = rho_s in grid units, 8=Rs in grid units, 140= number of particles for field 1 in grid units, 100 = number of particles for field 2 in grid units, 3 = ratio of mass between field 2 and 1)
 
-The files are stored in a directory specific to the type of run, which should be created BEFORE running the code 
-just look at the output name of main_sim_mpi_2field.cpp. Backup files when mpi=true are stored in different files for different nodes. If you start a run using a certain number of cores, all the following runs (which uses the previous backup as initial conditions) have to use the same number of cores
+The files are stored in a directory specific to the type of run, which should be created BEFORE running the code; 
+just look at the output name in main_sim_mpi_2field.cpp (corresponding to the particular initial condition you are interested into). Backup files when mpi=true are stored in different files for different nodes. If you start a run using a certain number of cores, all the following runs (which uses the previous backup as initial conditions) have to use the same number of cores
 
 Another example:
 
-mpirun -np 16 1 512 100 4000 0.1 1 100 400 levkov false 80 1
+mpirun -np main_sim_mpi 16 1 512 100 4000 0.1 1 100 400 levkov false 80 1
 
-Simulations which uses levkov initial conditions. Files are stored on the out_levkov/ directory, which should be created BEFORE running the program.
+Simulations which uses levkov initial conditions, 16 cores, with mpi. Files are stored on the out_levkov/ directory, which should be created BEFORE running the program.
 
 Details of the MPI implementation
 - the grid is split in the z-direction onto different processes
