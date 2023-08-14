@@ -104,7 +104,7 @@ void print3_cpp(multi_array<T,3> & v1,  U & filename){
           if(k!=(Nx-1) || j!=(Nx-1) || i!=(Nx-1)) //If it is not the last one
             filename<< " ";
         }
-    }
+      }
     }
 }
 template<class T, class U> //Outputs the full psi with the n fields

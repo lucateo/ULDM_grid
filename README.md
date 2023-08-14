@@ -13,7 +13,7 @@ just look at the output name in main_sim_mpi_2field.cpp (corresponding to the pa
 
 Another example:
 
-mpirun -np main_sim_mpi 16 1 512 100 4000 0.1 1 100 400 levkov false 80 1
+mpirun -np 16 main_sim_mpi 1 512 100 4000 0.1 1 100 400 levkov false 80 1
 
 Simulations which uses levkov initial conditions, 16 cores, with mpi. Files are stored on the out_levkov/ directory, which should be created BEFORE running the program.
 

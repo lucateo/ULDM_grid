@@ -188,5 +188,6 @@ double Fourier::e_kin_FT(multi_array<double,4> &psi, double Length,int nghost, i
         double ksq=(pow(shift(i,Nx),2)+pow(shift(j,Nx),2)+pow(shift(ktrue,Nx),2))*4*M_PI*M_PI/(Length*Length);
         tot_en=tot_en+ksq*(pow(rin[i+Nx*j+Nx*Nx*k][0],2)+ pow(rin[i+Nx*j+Nx*Nx*k][1],2));
       }
+  #pragma omp barrier
   return 0.5*tot_en/pow(Nx,6);
 }

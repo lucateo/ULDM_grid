@@ -153,6 +153,7 @@ multi_array<double,2> domain3::profile_density(double density_max, int whichPsi)
           count[distance]=count[distance]+1; //counts the points that fall in that shell
         }
       }
+  #pragma omp barrier
   // For the phase, I take only one ray
   // Only do this on the node that contains the maximum point
   if(world_rank==maxNode || mpi_bool==false){
@@ -201,6 +202,7 @@ multi_array<double,2> domain3::profile_density(double density_max, int whichPsi)
       binned[4][lp]=binned[4][lp]/count[lp];// Phi (radial)
     }
   }
+  #pragma omp barrier
 
   // convert back to a multiarray to return
   multi_array<double,2> binnedR(extents[6][pointsmax]);
@@ -210,6 +212,7 @@ multi_array<double,2> domain3::profile_density(double density_max, int whichPsi)
       binnedR[ii][jj]=binned[ii][jj];
     }
   }
+  #pragma omp barrier
   return binnedR;
 }
 

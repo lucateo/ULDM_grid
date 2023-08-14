@@ -118,6 +118,7 @@ long double domain3::full_energy_kin(int whichPsi){// it computes the kinetic en
       for(int k=nghost; k<PointsSS+nghost;k++){
         total_energy = total_energy + energy_kin(i,j,k,whichPsi);
       }
+  #pragma omp barrier
   long double total_energy_shared; // total summed up across all nodes
   if(mpi_bool==true){
     MPI_Allreduce(&total_energy, &total_energy_shared, 1, MPI_LONG_DOUBLE, MPI_SUM,MPI_COMM_WORLD);
@@ -136,6 +137,7 @@ long double domain3::full_energy_pot(int whichPsi){// it computes the potential 
       for(int k=nghost; k<PointsSS+nghost;k++){
         total_energy = total_energy + energy_pot(i,j,k,whichPsi);
       }
+  #pragma omp barrier
   long double total_energy_shared; // total summed up across all nodes
   if(mpi_bool==true){
     MPI_Allreduce(&total_energy, &total_energy_shared, 1, MPI_LONG_DOUBLE, MPI_SUM,MPI_COMM_WORLD);
@@ -149,6 +151,7 @@ long double domain3::full_energy_pot(int whichPsi){// it computes the potential 
 
 double domain3::find_maximum(int whichPsi){ // Sets maxx, maxy, maxz equal to the maximum, it just checks for one global maximum
   double maxdensity = 0;
+  #pragma omp parallel for collapse(3)
   for(int i=0;i<PointsS;i++)
     for(int j=0; j<PointsS;j++)
       for(int k=nghost; k<PointsSS+nghost;k++){
@@ -156,6 +159,7 @@ double domain3::find_maximum(int whichPsi){ // Sets maxx, maxy, maxz equal to th
         if (density_current > maxdensity)// convention is that maxz does not count ghost; this is the true maxz of the full grid
         {maxx=i; maxy=j; maxz=k+world_rank*PointsSS-nghost; maxdensity =density_current;}  
       }
+    #pragma omp barrier
 
   // now compare across nodes (there's probably a better way to do this, but it's ok for now)
   maxNode=0;
