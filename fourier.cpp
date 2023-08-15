@@ -42,7 +42,6 @@ void Fourier::calculateIFT(){
 // A sample grid for testing purposes
 void Fourier::inputsamplegrid(){
   size_t i,j,k;
-  #pragma omp parallel for collapse(3)
   for(i=0;i<Nx;i++){
     for(j=0; j<Nx;j++){
       for(k=0; k<Nz;k++){
@@ -52,13 +51,11 @@ void Fourier::inputsamplegrid(){
       }
     }
   }
-  #pragma omp barrier
 }
 
 // Insert on initial conditions the Levkov waves
 void Fourier::inputSpectrum(double Length, double Npart){
   //size_t i,j,k;
-  #pragma omp parallel for collapse(3) //not sure whether this is parallelizable
   for(size_t i=0;i<Nx;i++){
     for(size_t j=0; j<Nx;j++){
       for(size_t k=0; k<Nz;k++){
@@ -73,7 +70,6 @@ void Fourier::inputSpectrum(double Length, double Npart){
       }
     }
   }
-  #pragma omp barrier
 }
 
 //functions needed for the evolution
@@ -81,7 +77,6 @@ void Fourier::inputSpectrum(double Length, double Npart){
 // whichPsi should be 0 or 1 depending on which field
 void Fourier::inputpsi(multi_array<double,4> &psi, int nghost, int whichPsi){
   size_t i,j,k;
-  #pragma omp parallel for collapse(3)
   for(i=0;i<Nx;i++){
     for(j=0; j<Nx;j++){
       for(k=0; k<Nz;k++){
@@ -90,7 +85,6 @@ void Fourier::inputpsi(multi_array<double,4> &psi, int nghost, int whichPsi){
       }
     }
   }
-  #pragma omp barrier
 }
 
 //function for putting -k^2 factor; more precisely, psi->exp(-i c_alpha dt k^2/2 ) psi
@@ -98,7 +92,6 @@ void Fourier::kfactorpsi(double tstep, double Length, double calpha, int whichPs
   // I have to distinguish between the two fields, field 1 has the mass ratio r attached
   size_t i,j,k;
   double r = ratio_mass[whichPsi]; // Correct scaling for the SPE
-  #pragma omp parallel for collapse(3)
   for(i=0;i<Nx;i++)
     for(j=0; j<Nx;j++)
       for(k=0; k<Nz;k++){
@@ -109,26 +102,22 @@ void Fourier::kfactorpsi(double tstep, double Length, double calpha, int whichPs
         rin[i+Nx*j+Nx*Nx*k][0]= (cos(ksq)*repart-sin(ksq)*impart);
         rin[i+Nx*j+Nx*Nx*k][1]= (sin(ksq)*repart+cos(ksq)*impart);
       }
-  #pragma omp barrier
 }
 
 // Put on psi the result of Fourier transforms
 void Fourier::transferpsi(multi_array<double,4> &psi, double factor, int nghost, int whichPsi){
   size_t i,j,k;
-  #pragma omp parallel for collapse(3)
   for(i=0;i<Nx;i++)
     for(j=0; j<Nx;j++)
       for(k=0; k<Nz;k++){
         psi[2*whichPsi][i][j][k+nghost]=rin[i+Nx*j+Nx*Nx*k][0]*factor;
         psi[2*whichPsi+1][i][j][k+nghost]=rin[i+Nx*j+Nx*Nx*k][1]*factor;
       }
-  #pragma omp barrier
 }
 
 // input |psi|^2 to the memory that will be FTed
 // virtual, should not go in definition, only in declaration
 void Fourier::inputPhi(multi_array<double,4> &psi_in, int nghost, int nfields){ // Luca: I removed the psisqmean, since it is useless
-#pragma omp parallel for collapse(3)
 for(size_t i=0;i<Nx;i++)
   for(size_t j=0; j<Nx;j++)
     for(size_t k=0; k<Nz;k++){
@@ -138,14 +127,12 @@ for(size_t i=0;i<Nx;i++)
       }
       rin[i+Nx*j+Nx*Nx*k][1]=0;
     }
-#pragma omp barrier
 };
 
 //function for putting -1/k^2 factor on the output of the FT
 // needed for solving the Poisson equation to get Phi
 void Fourier::kfactorPhi(double Length){
 //size_t i,j,k;
-#pragma omp parallel for collapse(3)
 for(size_t i=0;i<Nx;i++)
   for(size_t j=0; j<Nx;j++)
     for(size_t k=0; k<Nz;k++){
@@ -160,18 +147,15 @@ for(size_t i=0;i<Nx;i++)
           rin[i+Nx*j+Nx*Nx*k][0]= (-1./ksq)*rin[i+Nx*j+Nx*Nx*k][0];
       }
     }
-#pragma omp barrier
 }
 
 // take the result of calculating Phi from the Poisson equation and put it onto a grid
 // Note the normalisation factor here from the inverse FT
 void Fourier::transferPhi(multi_array<double,3> &Phi, double factor){
-    #pragma omp parallel for collapse(3)
     for(size_t i=0;i<Nx;i++)
         for(size_t j=0; j<Nx;j++)
             for(size_t k=0; k<Nz;k++)
                 Phi[i][j][k]=rin[i+Nx*j+Nx*Nx*k][0]*factor;
-    #pragma omp barrier
 }
 
 //function for the total kinetic energy using the FT
@@ -180,7 +164,6 @@ double Fourier::e_kin_FT(multi_array<double,4> &psi, double Length,int nghost, i
   inputpsi(psi,nghost,whichPsi);
   calculateFT();
   long double tot_en=0;
-  #pragma omp parallel for collapse(3) reduction(+:tot_en)
   for(size_t i=0;i<Nx;i++)
     for(size_t j=0; j<Nx;j++)
       for(size_t k=0; k<Nz;k++){
@@ -188,6 +171,5 @@ double Fourier::e_kin_FT(multi_array<double,4> &psi, double Length,int nghost, i
         double ksq=(pow(shift(i,Nx),2)+pow(shift(j,Nx),2)+pow(shift(ktrue,Nx),2))*4*M_PI*M_PI/(Length*Length);
         tot_en=tot_en+ksq*(pow(rin[i+Nx*j+Nx*Nx*k][0],2)+ pow(rin[i+Nx*j+Nx*Nx*k][1],2));
       }
-  #pragma omp barrier
   return 0.5*tot_en/pow(Nx,6);
 }

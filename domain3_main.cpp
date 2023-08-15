@@ -46,12 +46,10 @@ void domain3::setoutputs(double t_ini){// Set the indices of the steps when outp
 
 long double domain3::psisqmean(int whichPsi){// Computes the mean |psi|^2 of field i=0,1
   long double totV=0;
-    #pragma omp parallel for collapse(3) reduction(+:totV)
     for(size_t i=0;i<PointsS;i++)
       for(size_t j=0;j<PointsS;j++)
         for(size_t k=nghost;k<PointsSS+nghost;k++)
           totV=totV+pow(psi[2*whichPsi][i][j][k],2)+pow(psi[2*whichPsi+1][i][j][k],2);
-    #pragma omp barrier
 
   long double totVshared; // total summed up across all nodes
   if(mpi_bool==true){
@@ -112,13 +110,11 @@ double domain3::e_kin_full1(int whichPsi){//Full kinetic energy with Fourier
 
 long double domain3::full_energy_kin(int whichPsi){// it computes the kinetic energy of the whole box with derivatives
   long double total_energy = 0;
-  #pragma omp parallel for collapse (3) reduction(+:total_energy)
   for(int i=0;i<PointsS;i++)
     for(int j=0; j<PointsS;j++)
       for(int k=nghost; k<PointsSS+nghost;k++){
         total_energy = total_energy + energy_kin(i,j,k,whichPsi);
       }
-  #pragma omp barrier
   long double total_energy_shared; // total summed up across all nodes
   if(mpi_bool==true){
     MPI_Allreduce(&total_energy, &total_energy_shared, 1, MPI_LONG_DOUBLE, MPI_SUM,MPI_COMM_WORLD);
@@ -131,13 +127,11 @@ long double domain3::full_energy_kin(int whichPsi){// it computes the kinetic en
 
 long double domain3::full_energy_pot(int whichPsi){// it computes the potential energy of the whole box
   long double total_energy = 0;
-  #pragma omp parallel for collapse (3) reduction(+:total_energy)
   for(int i=0;i<PointsS;i++)
     for(int j=0; j<PointsS;j++)
       for(int k=nghost; k<PointsSS+nghost;k++){
         total_energy = total_energy + energy_pot(i,j,k,whichPsi);
       }
-  #pragma omp barrier
   long double total_energy_shared; // total summed up across all nodes
   if(mpi_bool==true){
     MPI_Allreduce(&total_energy, &total_energy_shared, 1, MPI_LONG_DOUBLE, MPI_SUM,MPI_COMM_WORLD);
@@ -151,7 +145,6 @@ long double domain3::full_energy_pot(int whichPsi){// it computes the potential 
 
 double domain3::find_maximum(int whichPsi){ // Sets maxx, maxy, maxz equal to the maximum, it just checks for one global maximum
   double maxdensity = 0;
-  #pragma omp parallel for collapse(3)
   for(int i=0;i<PointsS;i++)
     for(int j=0; j<PointsS;j++)
       for(int k=nghost; k<PointsSS+nghost;k++){
@@ -159,7 +152,6 @@ double domain3::find_maximum(int whichPsi){ // Sets maxx, maxy, maxz equal to th
         if (density_current > maxdensity)// convention is that maxz does not count ghost; this is the true maxz of the full grid
         {maxx=i; maxy=j; maxz=k+world_rank*PointsSS-nghost; maxdensity =density_current;}  
       }
-    #pragma omp barrier
 
   // now compare across nodes (there's probably a better way to do this, but it's ok for now)
   maxNode=0;
@@ -194,7 +186,6 @@ void domain3::sortGhosts(){
 void domain3::expiPhi(double tstep, double da, int whichPsi){
   // Insert the ratio of mass for the second field
   double r = ratio_mass[whichPsi];
-  #pragma omp parallel for collapse(3)
   for(size_t i=0;i<PointsS;i++)
     for(size_t j=0;j<PointsS;j++)
       for(size_t k=nghost;k<PointsSS+nghost;k++){
@@ -203,7 +194,6 @@ void domain3::expiPhi(double tstep, double da, int whichPsi){
         psi[2*whichPsi][i][j][k]=cos(-tstep*da*r*Phi[i][j][k-nghost])*Repsi - sin(-tstep*da*r*Phi[i][j][k-nghost])*Impsi;   //real part
         psi[2*whichPsi+1][i][j][k]=sin(-tstep*da*r*Phi[i][j][k-nghost])*Repsi + cos(-tstep*da*r*Phi[i][j][k-nghost])*Impsi;   //im part
   }
-  #pragma omp barrier
 }
 
 void domain3::set_grid(bool grid_bool){//If false, domain3 outputs only the 2D sliced density profile

@@ -4,7 +4,6 @@
 // Initial conditions functions
 // Initial condition with waves, test purposes
 void domain3::initial_waves(){
-  #pragma omp parallel for collapse(3)
   for(int i=0;i<PointsS;i++)
     for(int j=0;j<PointsS;j++)
       for(int k=nghost;k<PointsSS+nghost;k++){
@@ -39,7 +38,6 @@ void domain3::initial_waves(){
 void domain3::setInitialSoliton_1(double r_c, int whichpsi){ // sets 1 soliton in the center of the grid as initial condition, for field 0
   int center = (int) PointsS / 2; // The center of the grid, more or less
   int extrak= PointsSS*world_rank -nghost; // Take into account the node where you are. If mpi==false, world rank is initialized to 0
-  #pragma omp parallel for collapse(3) //not sure whether this is parallelizable
     for(int i=0;i<PointsS;i++){
       for(int j=0; j<PointsS;j++){
         for(int k=nghost; k<PointsSS+nghost;k++){
@@ -50,7 +48,6 @@ void domain3::setInitialSoliton_1(double r_c, int whichpsi){ // sets 1 soliton i
         }
       }
     }
-  #pragma omp barrier
 }
 
 // void domain3::setInitialSoliton_2(double r_c1, double r_c2, double distance){ // sets 2 solitons as initial condition, for testing purposes
@@ -111,7 +108,6 @@ void domain3::setManySolitons_random_radius(int num_Sol, double min_radius, doub
     MPI_Recv(&random_z.front(),random_z.size(), MPI_INT, 0, 300+world_rank, MPI_COMM_WORLD,MPI_STATUS_IGNORE);
     MPI_Recv(&r_c.front(),r_c.size(), MPI_DOUBLE, 0, 400+world_rank, MPI_COMM_WORLD,MPI_STATUS_IGNORE);
   }
-  #pragma omp parallel for collapse(3) //not sure whether this is parallelizable
   for(int i=0;i<PointsS;i++){
     for(int j=0; j<PointsS;j++){
       for(int k=nghost; k<PointsSS+nghost;k++){
@@ -124,12 +120,10 @@ void domain3::setManySolitons_random_radius(int num_Sol, double min_radius, doub
       }
     }
   }
-  #pragma omp barrier
 }
 
 // sets many solitons as initial condition, with same core radius whose centers are confined in a box of length length_lim
 void domain3::setManySolitons_same_radius(int num_Sol, double r_c, double length_lim){
-  #pragma omp barrier
   vector<int> random_x(num_Sol,0);
   vector<int> random_y(num_Sol,0);
   vector<int> random_z(num_Sol,0);
@@ -162,7 +156,6 @@ void domain3::setManySolitons_same_radius(int num_Sol, double r_c, double length
     MPI_Recv(&random_y.front(),random_y.size(), MPI_INT, 0, 200+world_rank, MPI_COMM_WORLD,MPI_STATUS_IGNORE);
     MPI_Recv(&random_z.front(),random_z.size(), MPI_INT, 0, 300+world_rank, MPI_COMM_WORLD,MPI_STATUS_IGNORE);
   }
-  #pragma omp parallel for collapse(3) //not sure whether this is parallelizable
   for(int i=0;i<PointsS;i++){
     for(int j=0; j<PointsS;j++){
       for(int k=nghost; k<PointsSS+nghost;k++){
@@ -228,7 +221,6 @@ void domain3::setManySolitons_deterministic(double r_c, int num_sol){
     y[i]= center + (int) round(y_phys[i] / deltaX);
     z[i]= center + (int) round(z_phys[i] / deltaX);
   }
-  #pragma omp parallel for collapse(3) //not sure whether this is parallelizable
     for(int i=0;i<PointsS;i++){
         for(int j=0; j<PointsS;j++){
             for(int k=nghost; k<PointsSS+nghost;k++){

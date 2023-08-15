@@ -68,13 +68,11 @@ void domain3::exportValues(){
 // fileout should have a different name on each node
 void domain3::outputfulldensity(ofstream& fileout,int whichPsi){// Outputs the full 3D density profile
   multi_array<double,3> density(extents[PointsS][PointsS][PointsSS]);
-  #pragma omp parallel for collapse(3)
     for(size_t i=0;i<PointsS;i++)
       for(size_t j=0; j<PointsS;j++)
         for(size_t k=0; k<PointsS;k++){
             density[i][j][k]= pow(psi[2*whichPsi][i][j][k+nghost],2)+pow(psi[2*whichPsi+1][i][j][k+nghost],2);
         }
-  #pragma omp barrier
   print3(density,fileout);
 }
 
@@ -100,26 +98,22 @@ void domain3::outputfullPsi(ofstream& fileout){// Outputs the full 3D psi, every
 }
 void domain3::outputSlicedDensity(ofstream& fileout){ // Outputs the projected 2D density profile
   multi_array<double,3> density_sliced(extents[nfields][PointsS][PointsS]);
-  #pragma omp parallel for collapse(4)
   for(int l = 0; l < nfields; l++)
     for(size_t i=0;i<PointsS;i++)
       for(size_t j=0; j<PointsS;j++)
         for(size_t k=nghost; k<PointsSS+nghost;k++){
         density_sliced[l][i][j]= density_sliced[l][i][j] + pow(psi[2*l][i][j][k],2)+pow(psi[2*l+1][i][j][k],2);
         }
-  #pragma omp barrier
   print3(density_sliced,fileout);
 }
 
 void domain3::outputPhaseSlice(ofstream& fileout){ // Outputs a 2D slice of the phase
   multi_array<double,3> phase_sliced(extents[nfields][PointsS][PointsS]);
-  #pragma omp parallel for collapse(3)
   for(int l = 0; l < nfields; l++)
     for(size_t i=0;i<PointsS;i++)
       for(size_t j=0; j<PointsS;j++){
         phase_sliced[l][i][j]= atan2(psi[2*l+1][i][j][int(PointsSS/2)+nghost], psi[2*l][i][j][int(PointsSS/2)+nghost]);
       }
-  #pragma omp barrier
   print3(phase_sliced,fileout);
 }
 // Virtual because for the NFW case (for example) you want to compute radial functions starting from the center of the box and not the maximum
@@ -135,7 +129,6 @@ multi_array<double,2> domain3::profile_density(double density_max, int whichPsi)
   vector<int> count(pointsmax, 0); // Initialize vector of dimension pointsmax, with 0s
   // maxz does not have ghost cells
   int extrak = PointsSS*world_rank -nghost;
-  #pragma omp parallel for collapse(3)
   for(int i=0;i<PointsS;i++)
     for(int j=0; j<PointsS;j++)
       for(int k=nghost; k<PointsSS+nghost;k++){
@@ -153,7 +146,6 @@ multi_array<double,2> domain3::profile_density(double density_max, int whichPsi)
           count[distance]=count[distance]+1; //counts the points that fall in that shell
         }
       }
-  #pragma omp barrier
   // For the phase, I take only one ray
   // Only do this on the node that contains the maximum point
   if(world_rank==maxNode || mpi_bool==false){
@@ -192,7 +184,6 @@ multi_array<double,2> domain3::profile_density(double density_max, int whichPsi)
     }
   }
 
-  #pragma omp parallel for
   for(int lp=0;lp<pointsmax;lp++){
     if(count[lp]>0){
       binned[0][lp]=(lp+0.5)*Length/PointsS;
@@ -202,17 +193,14 @@ multi_array<double,2> domain3::profile_density(double density_max, int whichPsi)
       binned[4][lp]=binned[4][lp]/count[lp];// Phi (radial)
     }
   }
-  #pragma omp barrier
 
   // convert back to a multiarray to return
   multi_array<double,2> binnedR(extents[6][pointsmax]);
-  #pragma omp parallel for collapse (2)
   for(int ii=0;ii<6;ii++){
     for(int jj=0;jj<pointsmax;jj++){
       binnedR[ii][jj]=binned[ii][jj];
     }
   }
-  #pragma omp barrier
   return binnedR;
 }
 
