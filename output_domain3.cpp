@@ -262,9 +262,6 @@ void domain3::snapshot_profile(double stepCurrent){// Outputs only few relevant 
     profilefile<<"{";
   for(int l=0;l<nfields;l++){
     double maxdensityn = find_maximum(l);
-    int maxxn = maxx;
-    int maxyn = maxy;
-    int maxzn = maxz;
     multi_array<double,2> profile = profile_density(maxdensityn,l);
     if(world_rank==0){
       print2(profile,profilefile);

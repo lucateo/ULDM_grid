@@ -27,6 +27,7 @@ domain3::domain3(size_t PS,size_t PSS, double L, int n_fields, int Numsteps, dou
   world_rank(WR),
   world_size(WS)
   {
+    maxx=0; maxy=0; maxz=0; maxdensity=0; //Initialize the maximum coordinates, to avoid possible overflow
     deltaX=Length/PointsS;
     ratio_mass[0]=1; // the first mass ratio is always 1
     // stepping numbers, as defined in axionyx documentation
