@@ -24,10 +24,11 @@ domain3::domain3(size_t PS,size_t PSS, double L, int n_fields, int Numsteps, dou
   outputname(Outputname),
   jumps(extents[Nout+1]), // vector whose length corresponds to the outputs in time
   jumps_profile(extents[Nout_profile+1]), // vector whose length corresponds to the outputs in time for profile
+  maxx(extents[n_fields][3]), // maxx, y,z of the n_fields fields, initialized to zero to avoid overflow
+  maxdensity(extents[n_fields]), // maxdensity of the fields
   world_rank(WR),
   world_size(WS)
   {
-    maxx=0; maxy=0; maxz=0; maxdensity=0; //Initialize the maximum coordinates, to avoid possible overflow
     deltaX=Length/PointsS;
     ratio_mass[0]=1; // the first mass ratio is always 1
     // stepping numbers, as defined in axionyx documentation
@@ -86,20 +87,19 @@ double domain3::energy_kin(const int & i, const int & j, const int & k, int whic
       psi[find][i][j][cyc(k-2, PointsSS)], psi[find][i][j][cyc(k+3, PointsSS)], psi[find][i][j][cyc(k-3, PointsSS)])/deltaX;
   double der_psi3im = derivative_3point(psi[find+1][i][j][cyc(k+1, PointsSS)], psi[find+1][i][j][cyc(k-1, PointsSS)], psi[find+1][i][j][cyc(k+2, PointsSS)],
       psi[find+1][i][j][cyc(k-2, PointsSS)], psi[find+1][i][j][cyc(k+3, PointsSS)], psi[find+1][i][j][cyc(k-3, PointsSS)])/deltaX;
-  return 0.5/r* (pow(der_psi1im,2) + pow(der_psi1re,2) + pow(der_psi2im,2) + pow(der_psi2re,2)+ pow(der_psi3im,2) + pow(der_psi3re,2));
+  return 0.5/(r*r)* (pow(der_psi1im,2) + pow(der_psi1re,2) + pow(der_psi2im,2) + pow(der_psi2re,2)+ pow(der_psi3im,2) + pow(der_psi3re,2));
 }
 
 // it computes the potential energy density at grid point (i,j,k)
 // virtual for inheritance (external potential)
 // note that Psi fields have ghost points Phi doesn't, k includes ghosts
 double domain3::energy_pot(const int & i, const int & j, const int & k, int whichPsi){
-  double r = ratio_mass[whichPsi]; // Correct energy for field with mass ratio r wrt field 0
-  return 0.5*r*(pow(psi[2*whichPsi][i][j][k],2) + pow(psi[2*whichPsi+1][i][j][k],2))*Phi[i][j][k-nghost];
+  return 0.5*(pow(psi[2*whichPsi][i][j][k],2) + pow(psi[2*whichPsi+1][i][j][k],2))*Phi[i][j][k-nghost];
 }
 
 double domain3::e_kin_full1(int whichPsi){//Full kinetic energy with Fourier
   double r = ratio_mass[whichPsi];// Correct energy for field with mass ratio r wrt field 0
-  double locV= pow(Length,3)/r*fgrid.e_kin_FT(psi,Length,nghost,whichPsi);
+  double locV= pow(Length,3)/(r*r)*fgrid.e_kin_FT(psi,Length,nghost,whichPsi);
   double totV;
   // gather all the locV for all processes, sums them (MPI_SUM) and returns totV 
   if(mpi_bool==true){
@@ -151,40 +151,52 @@ long double domain3::full_energy_pot(int whichPsi){// it computes the potential 
 
 
 double domain3::find_maximum(int whichPsi){ // Sets maxx, maxy, maxz equal to the maximum, it just checks for one global maximum
-  double maxdensity = 0;
+  maxdensity[whichPsi] = 0;
   #pragma omp parallel for collapse(3)
   for(int i=0;i<PointsS;i++)
     for(int j=0; j<PointsS;j++)
       for(int k=nghost; k<PointsSS+nghost;k++){
         double density_current = pow(psi[2*whichPsi][i][j][k],2) + pow(psi[2*whichPsi+1][i][j][k],2);
-        if (density_current > maxdensity)// convention is that maxz does not count ghost; this is the true maxz of the full grid
-        {maxx=i; maxy=j; maxz=k+world_rank*PointsSS-nghost; maxdensity =density_current;}  
+        if (density_current > maxdensity[whichPsi]){// convention is that maxz does not count ghost; this is the true maxz of the full grid
+          maxx[whichPsi][0]=i; maxx[whichPsi][1]=j; maxx[whichPsi][2]=k+world_rank*PointsSS-nghost; 
+          maxdensity[whichPsi] =density_current;
+        }  
       }
     #pragma omp barrier
 
   // now compare across nodes (there's probably a better way to do this, but it's ok for now)
   maxNode=0;
+  int maxx_local = maxx[whichPsi][0];
+  int maxy_local = maxx[whichPsi][1];
+  int maxz_local = maxx[whichPsi][2];
+  double maxdensity_local = maxdensity[whichPsi];
   if(world_rank!=0 && mpi_bool==true){  // collect onto node 0
-    vector<float> sendup {(float) 1.0000001*maxx,(float)1.00000001* maxy,(float)1.000001*maxz,(float) maxdensity };
+    vector<float> sendup {(float) 1.0000001*maxx_local,(float)1.00000001* maxy_local,
+      (float)1.000001*maxz_local,(float) maxdensity_local };
     MPI_Send(&sendup.front(), sendup.size(), MPI_FLOAT, 0, 9090, MPI_COMM_WORLD);
   }
   if(world_rank==0 && mpi_bool==true){  // send to every other node
       for(int lpb=1;lpb<world_size;lpb++){ // recieve from every other node
           vector<float> reci(4,0); //vector to recieve data into
           MPI_Recv(&reci.front(),reci.size(), MPI_FLOAT, lpb, 9090, MPI_COMM_WORLD,MPI_STATUS_IGNORE);
-          if(reci[3]> maxdensity){maxdensity=reci[3]; maxx=reci[0];  maxy=reci[1];  maxz=reci[2];maxNode=lpb; }
+          if(reci[3]> maxdensity_local){
+            maxdensity_local=reci[3]; maxx_local=reci[0];  
+            maxy_local=reci[1];  maxz_local=reci[2];maxNode=lpb; 
+          }
       }
   }
 
   // now correct on node 0, but now we need to tell all the nodes
   if(mpi_bool==true){
     MPI_Bcast(&maxNode, 1, MPI_INT,0, MPI_COMM_WORLD);
-    MPI_Bcast(&maxx, 1, MPI_INT,0, MPI_COMM_WORLD);
-    MPI_Bcast(&maxy, 1, MPI_INT,0, MPI_COMM_WORLD);
-    MPI_Bcast(&maxz, 1, MPI_INT,0, MPI_COMM_WORLD);
-    MPI_Bcast(&maxdensity, 1, MPI_DOUBLE,0, MPI_COMM_WORLD);
+    MPI_Bcast(&maxx_local, 1, MPI_INT,0, MPI_COMM_WORLD);
+    MPI_Bcast(&maxy_local, 1, MPI_INT,0, MPI_COMM_WORLD);
+    MPI_Bcast(&maxz_local, 1, MPI_INT,0, MPI_COMM_WORLD);
+    MPI_Bcast(&maxdensity_local, 1, MPI_DOUBLE,0, MPI_COMM_WORLD);
   }
-  return maxdensity;
+  maxx[whichPsi][0]=maxx_local; maxx[whichPsi][1]=maxy_local; maxx[whichPsi][2]=maxz_local;
+  maxdensity[whichPsi]=maxdensity_local; 
+  return maxdensity[whichPsi];
 }
 
 void domain3::sortGhosts(){
@@ -283,8 +295,11 @@ void domain3::solveConvDif(){
     ifstream infile(outputname+"runinfo.txt");
     string temp;
     size_t i = 0;
-    while (std::getline(infile, temp, ' ') && i<1){ // convoluted way to read just the first character
-      tcurrent = stod(temp);
+    while (std::getline(infile, temp, ' ') && i<6){ // convoluted way to read just the character I need
+      if(i==0)
+        tcurrent = stod(temp);
+      // else if(i==5)
+      //   dt=stod(temp);
       i++;
     }
   }
@@ -323,6 +338,8 @@ while(stepCurrent<=numsteps){
         dt = dt/2;
         E_tot_initial = etot_current;
       }
+      else if(abs(etot_current-E_tot_initial)/abs(etot_current +E_tot_initial)<0.0001)
+        dt = dt*2;
       exportValues(); // for backup purposes
       ofstream phi_final;
       outputfullPhi(phi_final);

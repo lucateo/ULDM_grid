@@ -151,7 +151,7 @@ class Fourier{
     // A sample grid for testing purposes
     void inputsamplegrid();
     // Insert on initial conditions the Levkov waves
-    void inputSpectrum(double Length, double Npart);
+    void inputSpectrum(double Length, double Npart, double r);
     //functions needed for the evolution
     //input psi on the array for fftw, note the shift due to the ghost cells
     // whichPsi should be 0 or 1 depending on which field
@@ -215,11 +215,9 @@ class domain3{
     bool phaseGrid = false; // If true, it outputs the phase slice passing on the center
     bool start_from_backup = false; // If true, starts from the backup files
     int pointsmax =0;
-    int maxx;       //location x,y,z of the max density in the grid (for a certain field)
-    int maxy;
-    int maxz;
+    multi_array<int, 2> maxx;       //location x,y,z of the max density in the grid (for a certain field)
     int maxNode=0;    // node that the maximum value is on
-    double maxdensity; // Max density on the grid
+    multi_array<double, 1>  maxdensity; // Max density on the grid
 
     // Variables useful for backup
     double tcurrent; // Current time of simulation
@@ -270,7 +268,7 @@ class domain3{
       // Outputs the full 4D psi, every field, for backup purposes
       void outputfullPsi(ofstream& fileout);
       // Virtual because for the NFW case (for example) you want to compute radial functions starting from the center of the box and not the maximum
-      virtual multi_array<double,2> profile_density(double density_max, int whichPsi);
+      virtual multi_array<double,2> profile_density(int whichPsi);
       void snapshot(double stepCurrent);
       void snapshot_profile(double stepCurrent);
       // Outputs the projected 2D column density, every field
@@ -296,7 +294,7 @@ class domain3{
       // Deterministic initial condition
       void setManySolitons_deterministic(double r_c, int num_sol);
       // Levkov like initial conditions
-      void set_waves_Levkov(multi_array<double, 1> Npart, int dim);
+      void set_waves_Levkov(multi_array<double, 1> Npart);
 
        // functions below not adapted for MPI yet
  /*

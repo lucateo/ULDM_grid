@@ -243,10 +243,10 @@ void domain3::setManySolitons_deterministic(double r_c, int num_sol){
     }
 }
 
-void domain3::set_waves_Levkov(multi_array<double, 1> Nparts, int dim){
-  // Sets waves initial conditions a la Levkov, Nparts is number of particles, for the various fields, dim in n_fields
-  for(int i=0; i<dim; i++){
-    fgrid.inputSpectrum(Length, Nparts[i]);
+void domain3::set_waves_Levkov(multi_array<double, 1> Nparts){
+  // Sets waves initial conditions a la Levkov, Nparts is number of particles, for the various fields
+  for(int i=0; i<nfields; i++){
+    fgrid.inputSpectrum(Length, Nparts[i], ratio_mass[i]);
     fgrid.calculateFT();
     fgrid.transferpsi(psi, 1./pow(Length,3),nghost,i);
   }
@@ -254,9 +254,15 @@ void domain3::set_waves_Levkov(multi_array<double, 1> Nparts, int dim){
     info_initial_cond.open(outputname+"initial_cond_info.txt");
     info_initial_cond.setf(ios_base::fixed); 
     info_initial_cond<<"{";
-    for(int i=0; i<dim; i++){
+    for(int i=0; i<nfields; i++){
       info_initial_cond<<Nparts[i];
-      if(i<dim-1) info_initial_cond<<",";
+      if(i<nfields-1) info_initial_cond<<",";
+    }
+    if(nfields>1){
+      for(int i=1; i<nfields; i++){
+        info_initial_cond<<ratio_mass[i];
+        if(i<nfields-1) info_initial_cond<<",";
+      }
     }
     info_initial_cond<<"}" <<endl;
     info_initial_cond.close();

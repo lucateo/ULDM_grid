@@ -53,7 +53,7 @@ void domain3::exportValues(){
   if(world_rank==0){
     runinfo.open(outputname+"runinfo.txt");
     runinfo.setf(ios_base::fixed);
-    runinfo<<tcurrent<<" "<<E_tot_initial<<" "<< Length<<" "<<numsteps<<" "<<PointsS<<" "
+    runinfo<<tcurrent<<" "<<E_tot_initial<<" "<< Length<<" "<<numsteps<<" "<<PointsS<<" "<<dt<<" "
         <<numoutputs<<" "<<numoutputs_profile;
     for(int i=0; i<nfields; i++)
     {
@@ -123,7 +123,7 @@ void domain3::outputPhaseSlice(ofstream& fileout){ // Outputs a 2D slice of the 
   print3(phase_sliced,fileout);
 }
 // Virtual because for the NFW case (for example) you want to compute radial functions starting from the center of the box and not the maximum
-multi_array<double,2> domain3::profile_density(double density_max, int whichPsi){ // It computes the averaged density and energy as function of distance from soliton
+multi_array<double,2> domain3::profile_density(int whichPsi){ // It computes the averaged density and energy as function of distance from soliton
   //we need to specify what is the maximum number of points we want to calculate the profile from the center {xmax,ymax,zmax}
   //You have to call find_maximum() first in order to set the maximum values to the class
   // note: results only make sense on node 0
@@ -139,9 +139,9 @@ multi_array<double,2> domain3::profile_density(double density_max, int whichPsi)
   for(int i=0;i<PointsS;i++)
     for(int j=0; j<PointsS;j++)
       for(int k=nghost; k<PointsSS+nghost;k++){
-        int Dx=maxx-(int)i; if(abs(Dx)>PointsS/2){Dx=abs(Dx)-(int)PointsS;} // workaround which takes into account the periodic boundary conditions
-        int Dy=maxy-(int)j; if(abs(Dy)>PointsS/2){Dy=abs(Dy)-(int)PointsS;} // periodic boundary conditions!
-        int Dz=maxz-(int)k+extrak; if(abs(Dz)>PointsS/2){Dz=abs(Dz)-(int)PointsS;} // periodic boundary conditions!
+        int Dx=maxx[whichPsi][0]-(int)i; if(abs(Dx)>PointsS/2){Dx=abs(Dx)-(int)PointsS;} // workaround which takes into account the periodic boundary conditions
+        int Dy=maxx[whichPsi][1]-(int)j; if(abs(Dy)>PointsS/2){Dy=abs(Dy)-(int)PointsS;} // periodic boundary conditions!
+        int Dz=maxx[whichPsi][2]-(int)k+extrak; if(abs(Dz)>PointsS/2){Dz=abs(Dz)-(int)PointsS;} // periodic boundary conditions!
         int distance=pow(Dx*Dx+Dy*Dy+Dz*Dz, 0.5);
         if(distance<pointsmax){
           //adds up all the points in the 'shell' with radius = distance
@@ -157,13 +157,14 @@ multi_array<double,2> domain3::profile_density(double density_max, int whichPsi)
   // For the phase, I take only one ray
   // Only do this on the node that contains the maximum point
   if(world_rank==maxNode || mpi_bool==false){
-    int maxz_node = maxz - PointsSS*world_rank +nghost;//maxz in max node with ghost cell
+    int maxz_node = maxx[whichPsi][2] - PointsSS*world_rank +nghost;//maxz in max node with ghost cell
     for(int i=0;i<PointsS;i++){
-      int distance =maxx-(int)i; if(abs(distance)>PointsS/2){distance=abs(distance)-(int)PointsS;} // workaround which takes into account the periodic boundary conditions
+      int distance =maxx[whichPsi][0]-(int)i; if(abs(distance)>PointsS/2){distance=abs(distance)-(int)PointsS;} // workaround which takes into account the periodic boundary conditions
       distance = abs(distance);
       if(distance<pointsmax){
           //Takes only one ray passing from the center of the possible soliton
-          binned[5][distance] = atan2(psi[2*whichPsi+1][i][maxy][maxz_node], psi[2*whichPsi][i][maxy][maxz_node]);
+          binned[5][distance] = atan2(psi[2*whichPsi+1][i][maxx[whichPsi][1]][maxz_node], 
+                                      psi[2*whichPsi][i][maxx[whichPsi][2]][maxz_node]);
       }
     }
   }
@@ -219,20 +220,23 @@ multi_array<double,2> domain3::profile_density(double density_max, int whichPsi)
 void domain3::snapshot(double stepCurrent){//Outputs the full density profile; if 3dgrid is false, it outputs just sliced density
   cout.setf(ios_base::fixed);
   if(world_rank==0)
-    timesfile_grid<<"{"<<tcurrent<<","<<maxdensity<<","<<maxx<<"," <<maxy<<","<<maxz;
+    timesfile_grid<<"{"<<tcurrent;
       // if(stepCurrent<numsteps){
+  double Etot =0;
   for(int l=0;l<nfields;l++){
     double Ek_full = e_kin_full1(l);
     double Epot_full = full_energy_pot(l);
     double M_tot = total_mass(l);
+    Etot = Etot + Ek_full + Epot_full;
     if(world_rank==0){
-      timesfile_grid<<","<<Ek_full<<","<<Epot_full<<","<<M_tot;
+      timesfile_grid<<","<<maxdensity[l]<<"," <<maxx[l][0]<<"," <<maxx[l][1]<<","<<maxx[l][2]
+        <<","<<Ek_full<<","<<Epot_full<<","<<M_tot;
       // if(stepCurrent<numsteps){
     }
   }
   if(world_rank==0){
-    timesfile_grid<<"},\n"<<flush;
-    cout<<"Output results"<<endl;
+    timesfile_grid<<","<<Etot<<"}\n"<<","<<flush;
+    cout<<"Output animation results"<<endl;
   }
   cout.setf(ios_base::fixed);
   outputSlicedDensity(profile_sliced); // Output of both fields
@@ -261,30 +265,33 @@ void domain3::snapshot_profile(double stepCurrent){// Outputs only few relevant 
   if(world_rank==0)
     profilefile<<"{";
   for(int l=0;l<nfields;l++){
-    double maxdensityn = find_maximum(l);
-    multi_array<double,2> profile = profile_density(maxdensityn,l);
+    maxdensity[l] = find_maximum(l);
+    multi_array<double,2> profile = profile_density(l);
     if(world_rank==0){
       print2(profile,profilefile);
       if(l<nfields-1)
         profilefile<<","<<flush;
     }
   }
-  if(world_rank==0)
+  if(world_rank==0){
     profilefile<<"}\n" <<","<<flush;
-  
+    timesfile_profile<<"{"<<tcurrent;
+  }
   // The total quantities computation needs to be run on all nodes
-  if(world_rank==0)
-    timesfile_profile<<"{"<<tcurrent<<","<<maxdensity<<","<<maxx<<"," <<maxy<<","<<maxz;
+  double Etot =0;
   for(int l=0;l<nfields;l++){
     double Ek_full = e_kin_full1(l);
     double Epot_full = full_energy_pot(l);
     double M_tot = total_mass(l);
+    Etot = Etot + Ek_full + Epot_full;
     if(world_rank==0){
-      timesfile_profile<<","<<Ek_full<<","<<Epot_full<<","<<M_tot;
+      timesfile_profile<<","<<maxdensity[l]<<"," <<maxx[l][0]<<"," <<maxx[l][1]<<","<<maxx[l][2]
+        <<","<<Ek_full<<","<<Epot_full<<","<<M_tot;
       // if(stepCurrent<numsteps){
     }
   }
   if(world_rank==0){
-    timesfile_profile<< "}\n" <<","<<flush;
+    timesfile_profile<<","<<Etot<<"}\n"<<","<<flush;
+    cout<<"Output profile results"<<endl;
   }
 }

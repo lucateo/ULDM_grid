@@ -56,7 +56,7 @@ void Fourier::inputsamplegrid(){
 }
 
 // Insert on initial conditions the Levkov waves
-void Fourier::inputSpectrum(double Length, double Npart){
+void Fourier::inputSpectrum(double Length, double Npart, double r){
   //size_t i,j,k;
   #pragma omp parallel for collapse(3) //not sure whether this is parallelizable
   for(size_t i=0;i<Nx;i++){
@@ -66,7 +66,7 @@ void Fourier::inputSpectrum(double Length, double Npart){
         double phase=fRand(0,2*M_PI);
         double momentum2=
           pow(2*M_PI/Length,2)*(pow(shift(i,Nx),2) + pow(shift(j,Nx),2) + pow(shift(realk,Nx),2));
-        double amplit=P_spec( momentum2  , Npart);
+        double amplit=P_spec( momentum2/(r*r) , Npart)/r;
 
         rin[i+Nx*j+Nx*Nx*k][0]=amplit*cos(phase); //fill in the real part
         rin[i+Nx*j+Nx*Nx*k][1]=amplit*sin(phase); //fill in the imaginary part

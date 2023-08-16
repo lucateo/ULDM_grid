@@ -31,6 +31,8 @@ int main(int argc, char** argv){
   istringstream(mpi_string)>>mpirun_flag;
   if(mpirun_flag == true){
     MPI_Init_thread(&argc, &argv, MPI_THREAD_FUNNELED, &provided);
+    int threads_ok = provided >= MPI_THREAD_FUNNELED;
+    cout<< "threads ok? "<<threads_ok<<endl;
     fftw_init_threads();
     fftw_mpi_init();
     // Find out rank of the particular process and the overal number of processes being run
@@ -79,19 +81,20 @@ int main(int argc, char** argv){
         outputname = outputname + "Npart"+to_string(i) +"_"+ to_string(Nparts[i]) + "_";
       }
       // 
-      domain3 D3(Nx,Nz,Length, num_fields,numsteps,dt,outputnumb, outputnumb_profile, outputname, Pointsmax, world_rank,world_size,nghost, mpirun_flag);
       if(num_fields > 1){
         for(int i=1; i<num_fields;i++){
-          ratio_mass[i] = atof(argv[10+num_fields-1+i]);
+          ratio_mass[i] = atof(argv[10+num_fields+i]);
+          outputname = outputname + "rmass"+to_string(i) +"_"+ to_string(ratio_mass[i]) + "_";
         }
       }
+      domain3 D3(Nx,Nz,Length, num_fields,numsteps,dt,outputnumb, outputnumb_profile, outputname, Pointsmax, world_rank,world_size,nghost, mpirun_flag);
       D3.set_ratio_masses(ratio_mass);
       D3.set_grid(false);
       D3.set_grid_phase(false); // It will output 2D slice of phase grid
       if(start_from_backup=="true")
         D3.initial_cond_from_backup();
       else
-        D3.set_waves_Levkov(Nparts, num_fields);
+        D3.set_waves_Levkov(Nparts);
       D3.set_backup_flag(backup_bool);
       D3.solveConvDif();
     }
@@ -209,7 +212,7 @@ int main(int argc, char** argv){
       if(start_from_backup=="true")
         D3.initial_cond_from_backup();
       else
-        D3.set_waves_Levkov(Nparts, num_fields);
+        D3.set_waves_Levkov(Nparts);
       D3.set_backup_flag(backup_bool);
       D3.solveConvDif();
     }
