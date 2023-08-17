@@ -17,8 +17,8 @@ int main(int argc, char** argv){
   int numsteps= atof(argv[4]);                   //Number of steps
   double dt= atof(argv[5]);                     //timeSpacing,  tf/Nt
   int num_fields = atof(argv[6]); // number of fields
-  int outputnumb=atof(argv[7]);// Number of outputs for the sliced (if Grid3D==false) or full 3D grid (if Grid3D==true) density profile (for animation)
-  int outputnumb_profile=atof(argv[8]);//number of outputs for radial profiles
+  int outputnumb=atof(argv[7]);// Number of steps before outputs the sliced (if Grid3D==false) or full 3D grid (if Grid3D==true) density profile (for animation)
+  int outputnumb_profile=atof(argv[8]);//number of steps before outputs for radial profiles
   string initial_cond = argv[9];
   string start_from_backup = argv[10]; // true or false, depending on whether you want to start from a backup or not
   
@@ -74,8 +74,15 @@ int main(int argc, char** argv){
   if (initial_cond == "levkov" ) {// Levkov initial conditions
     if (argc > 10 +2*num_fields-1){
       multi_array<double, 1> Nparts(extents[num_fields]);
-      string outputname = "out_levkov/out_2fields_Levkov_nopsisqmean_nfields_"+to_string(num_fields)+"_Nx" + to_string(Nx) + "_L_" + to_string(Length)
+      string outputname;
+      if (mpirun_flag==true)
+        outputname = "out_levkov_new/Levkov_mpi_nfields_"+to_string(num_fields)+"_Nx" + to_string(Nx) + "_L_" + to_string(Length)
         + "_";
+      else
+        outputname = "out_levkov_new/Levkov_nfields_"+to_string(num_fields)+"_Nx" + to_string(Nx) + "_L_" + to_string(Length)
+        + "_";
+      // string outputname = "out_levkov/out_2fields_Levkov_nopsisqmean_nfields_"+to_string(num_fields)+"_Nx" + to_string(Nx) + "_L_" + to_string(Length)
+      //   + "_";
       for (int i=0; i<num_fields;i++){
         Nparts[i] = atof(argv[11+i]); // Number of particles
         outputname = outputname + "Npart"+to_string(i) +"_"+ to_string(Nparts[i]) + "_";

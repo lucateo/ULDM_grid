@@ -200,8 +200,6 @@ class domain3{
 
     multi_array<double,1> ca;     //vectors that store the numerical values of the coefficients to step forward
     multi_array<double,1> da;
-    multi_array<double,1> jumps;  //output timeshots contained in 'jumps'
-    multi_array<double,1> jumps_profile;  //output timeshots contained in 'jumps_profile'
 
     ofstream runinfo; // Output file for the run information (grid points, length etc.)
     ofstream profilefile; // Output file for radial profiles of density, energies etc.
@@ -232,7 +230,6 @@ class domain3{
           string Outputname, int pointsm, int WR, int WS, int Nghost, bool mpi_flag);
       domain3 (); //default constructor
       ~domain3(); //destructor
-      void setoutputs(double t_ini=0);
       long double psisqmean(int whichPsi);
       double total_mass(int whichPsi);
       // note k is counted including ghosts

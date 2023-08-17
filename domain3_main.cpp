@@ -19,11 +19,9 @@ domain3::domain3(size_t PS,size_t PSS, double L, int n_fields, int Numsteps, dou
   dt(DT),
   numsteps(Numsteps),
   pointsmax(pointsm),
-  numoutputs(Nout),
-  numoutputs_profile(Nout_profile),
+  numoutputs(Nout), //outputs animation every Nout steps
+  numoutputs_profile(Nout_profile), // outputs profile radially averaged every Nout_profile steps
   outputname(Outputname),
-  jumps(extents[Nout+1]), // vector whose length corresponds to the outputs in time
-  jumps_profile(extents[Nout_profile+1]), // vector whose length corresponds to the outputs in time for profile
   maxx(extents[n_fields][3]), // maxx, y,z of the n_fields fields, initialized to zero to avoid overflow
   maxdensity(extents[n_fields]), // maxdensity of the fields
   world_rank(WR),
@@ -37,14 +35,6 @@ domain3::domain3(size_t PS,size_t PSS, double L, int n_fields, int Numsteps, dou
   }; // constructor
 domain3::domain3() {};
 domain3::~domain3() {};
-void domain3::setoutputs(double t_ini){// Set the indices of the steps when output file function will be called
-  for(int inde=0; inde<numoutputs+1; inde++){
-    jumps[inde]=int(numsteps/numoutputs*inde);
-  }
-  for(int inde=0; inde<numoutputs_profile+1; inde++){
-    jumps_profile[inde]=int(numsteps/numoutputs_profile*inde);
-  }
-}
 
 long double domain3::psisqmean(int whichPsi){// Computes the mean |psi|^2 of field i=0,1
   long double totV=0;
@@ -257,16 +247,16 @@ void domain3::makestep(double stepCurrent, double tstep){ // makes a step in a d
       }
     }
   }
-  multi_array<long double, 1> psismean(extents[nfields]);
-  for(int i=0;i<nfields;i++)
-    psismean[i]=psisqmean(i);
-  if(world_rank==0){ 
-    cout<<"mean value of fields ";
-    for(int i=0;i<nfields;i++){
-      cout<<i<<" "<<psismean[i]<<", ";
-    }
-  cout<<endl;
-  }
+  // multi_array<long double, 1> psismean(extents[nfields]);
+  // for(int i=0;i<nfields;i++)
+  //   psismean[i]=psisqmean(i);
+  // if(world_rank==0){ 
+  //   cout<<"mean value of fields ";
+  //   for(int i=0;i<nfields;i++){
+  //     cout<<i<<" "<<psismean[i]<<", ";
+  //   }
+  // cout<<endl;
+  // }
 }
 
 void domain3::solveConvDif(){
@@ -275,7 +265,6 @@ void domain3::solveConvDif(){
     openfiles_backup();
   else
     openfiles();
-  setoutputs();
   int stepCurrent=0;
   if (start_from_backup == false){
     tcurrent = 0;
@@ -284,7 +273,7 @@ void domain3::solveConvDif(){
     // First step, I need its total energy (for adaptive time step, the Energy at 0 does not have the potential energy
     // (Phi is not computed yet), so store the initial energy after one step
     if(world_rank==0){
-      cout<<"current time = "<< tcurrent << " step " << stepCurrent << " / " << numsteps<<endl;
+      cout<<"current time = "<< tcurrent << " step " << stepCurrent << " / " << numsteps<<" dt "<<dt<<endl;
       cout<<"elapsed computing time (s) = "<< time(NULL)-beginning<<endl;
     }
     makestep(stepCurrent,dt);
@@ -308,23 +297,21 @@ void domain3::solveConvDif(){
     E_tot_initial += e_kin_full1(i) + full_energy_pot(i);
   }
 
-while(stepCurrent<=numsteps){
-  if(world_rank==0){
-    cout<<"current time = "<< tcurrent  << " step " << stepCurrent << " / " << numsteps<<endl;
-    cout<<"elapsed computing time (s) = "<< time(NULL)-beginning<<endl;
-  }
-  makestep(stepCurrent,dt);
-  tcurrent=tcurrent+dt;
-  stepCurrent=stepCurrent+1;
-  for(int index=0;index<=numoutputs;index++)
-    if(stepCurrent==jumps[index]) {
+  while(stepCurrent<numsteps){
+    if(world_rank==0){
+      cout<<"current time = "<< tcurrent  << " step " << stepCurrent << " / " << numsteps<<" dt "<<dt<<endl;
+      cout<<"elapsed computing time (s) = "<< time(NULL)-beginning<<endl;
+    }
+    makestep(stepCurrent,dt);
+    tcurrent=tcurrent+dt;
+    stepCurrent=stepCurrent+1;
+    if(stepCurrent%numoutputs==0 || stepCurrent==numsteps) {
       if (mpi_bool==true){ 
         sortGhosts(); // Should be called, to do derivatives in real space
       }
       snapshot(stepCurrent); 
     }
-  for(int index=0;index<=numoutputs_profile;index++)
-    if(stepCurrent==jumps_profile[index]) {
+    if(stepCurrent%numoutputs_profile==0 || stepCurrent==numsteps) {
       if (mpi_bool==true){ 
         sortGhosts(); // Should be called, to do derivatives in real space
       }
@@ -350,6 +337,7 @@ while(stepCurrent<=numsteps){
   closefiles();
   cout<<"end"<<endl;
 }
+
 
 void domain3::initial_cond_from_backup(){
   multi_array<double,1> Arr1D(extents[PointsS*PointsS*PointsSS]);
