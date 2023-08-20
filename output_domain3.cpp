@@ -141,7 +141,7 @@ multi_array<double,2> domain3::profile_density(int whichPsi){ // It computes the
       for(int k=nghost; k<PointsSS+nghost;k++){
         int Dx=maxx[whichPsi][0]-(int)i; if(abs(Dx)>PointsS/2){Dx=abs(Dx)-(int)PointsS;} // workaround which takes into account the periodic boundary conditions
         int Dy=maxx[whichPsi][1]-(int)j; if(abs(Dy)>PointsS/2){Dy=abs(Dy)-(int)PointsS;} // periodic boundary conditions!
-        int Dz=maxx[whichPsi][2]-(int)k+extrak; if(abs(Dz)>PointsS/2){Dz=abs(Dz)-(int)PointsS;} // periodic boundary conditions!
+        int Dz=maxx[whichPsi][2]-(int)k-extrak; if(abs(Dz)>PointsS/2){Dz=abs(Dz)-(int)PointsS;} // periodic boundary conditions!
         int distance=pow(Dx*Dx+Dy*Dy+Dz*Dz, 0.5);
         if(distance<pointsmax){
           //adds up all the points in the 'shell' with radius = distance

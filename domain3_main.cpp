@@ -1,6 +1,7 @@
 #include "uldm_mpi_2field.h"
 #include <boost/multi_array/multi_array_ref.hpp>
 #include <iostream>
+#include <ostream>
 
 domain3::domain3(size_t PS,size_t PSS, double L, int n_fields, int Numsteps, double DT, int Nout, int Nout_profile, 
     string Outputname, int pointsm, int WR, int WS, int Nghost, bool mpi_flag):
@@ -153,7 +154,6 @@ double domain3::find_maximum(int whichPsi){ // Sets maxx, maxy, maxz equal to th
         }  
       }
     #pragma omp barrier
-
   // now compare across nodes (there's probably a better way to do this, but it's ok for now)
   maxNode=0;
   int maxx_local = maxx[whichPsi][0];
@@ -261,6 +261,8 @@ void domain3::makestep(double stepCurrent, double tstep){ // makes a step in a d
 
 void domain3::solveConvDif(){
   int beginning=time(NULL);
+  //every 1 time steps, check the energy, for adaptive time step; it will be changed depending on the energy
+  int check_energy = 1; 
   if (start_from_backup == true)
     openfiles_backup();
   else
@@ -311,12 +313,11 @@ void domain3::solveConvDif(){
       }
       snapshot(stepCurrent); 
     }
-    if(stepCurrent%numoutputs_profile==0 || stepCurrent==numsteps) {
-      if (mpi_bool==true){ 
-        sortGhosts(); // Should be called, to do derivatives in real space
-      }
-      snapshot_profile(stepCurrent);
+    if(stepCurrent%check_energy==0){
       double etot_current = 0;
+      // double the n of steps (sort of, you just check that stepcurrent is divisible by check_energy) 
+      // after you check the energy
+      check_energy = 2*check_energy;
       for(int i=0;i<nfields;i++){
         etot_current += e_kin_full1(i) + full_energy_pot(i);
       }
@@ -324,9 +325,21 @@ void domain3::solveConvDif(){
       if(abs(etot_current-E_tot_initial)/abs(etot_current + E_tot_initial) > 0.001 ){
         dt = dt/2;
         E_tot_initial = etot_current;
+        // Reduce the amount of times you check the energy (halfing it), but do not go below 1
+        check_energy=max((int)check_energy/4,1);
       }
-      else if(abs(etot_current-E_tot_initial)/abs(etot_current +E_tot_initial)<0.0001)
+      else if(abs(etot_current-E_tot_initial)/abs(etot_current +E_tot_initial)<0.0001){
         dt = dt*2;
+      }
+    // The final check_energy should not surpass numoutput_profile
+    check_energy = min(check_energy, numoutputs_profile);
+    cout<<"Check energy "<<check_energy<<endl;
+    }
+    if(stepCurrent%numoutputs_profile==0 || stepCurrent==numsteps) {
+      if (mpi_bool==true){ 
+        sortGhosts(); // Should be called, to do derivatives in real space
+      }
+      snapshot_profile(stepCurrent);
       exportValues(); // for backup purposes
       ofstream phi_final;
       outputfullPhi(phi_final);
