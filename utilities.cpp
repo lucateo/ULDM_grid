@@ -39,13 +39,66 @@ double derivative_3point(double f1_plus, double f1_minus, double f2_plus, double
 }
 
 // Soliton profile in grid units
-double psi_soliton(double r_c, double r){
+double psi_soliton(double r_c, double r, double ratio){
     // lambda^2 of soliton solution with r_c in units of 1/m
-    double a = 0.228;
+    double a = 0.228*sqrt(ratio);
     double b = 4.071;
     double factor_half = pow(2,(double)1.0/(2*b)) -1; // factor which defines r_c, the radius where density drops by half
     double lambda2 = factor_half/(a*a*r_c*r_c);
     return lambda2 / pow(1 + factor_half*pow(r/r_c,2), b);
+}
+
+vector<double> num_second_derivative(vector<double> & xarr, vector<double> & yarr){
+  int Ndim = xarr.size();
+  vector<double> result(Ndim-2);
+  for(int i=1; i< Ndim-1; i++){ // avoid boundaries
+    double der = yarr[i+1]*(xarr[i] - xarr[i-1]) + yarr[i-1]*(xarr[i+1] - xarr[i]) - yarr[i]*(xarr[i+1]- xarr[i-1]);
+    der = der/(0.5*(xarr[i+1]- xarr[i-1])* (xarr[i+1] - xarr[i])*(xarr[i]- xarr[i-1]));
+    result[i-1] = der;
+  }
+  return result;
+}
+
+multi_array<double,1> Integral_trapezoid(multi_array<double,1> & xarr, multi_array<double,1> & yarr){
+  int Ndim = xarr.shape()[0];
+  multi_array<double,1> result(extents[Ndim]);
+  result[0] = yarr[0]*xarr[0]; // Assume "x[-1]" to be 0 and y to be constant before x[0]
+  for(int i=1; i< Ndim; i++){ // avoid boundaries
+    result[i] = result[i-1] + 0.5*(yarr[i-1] + yarr[i])*(xarr[i] - xarr[i-1]);
+  }
+  return result;
+}
+
+double interpolant(double x, vector<double> & xarr, vector<double> & yarr){
+  int Nx = xarr.size();
+  double result=-1;
+  int itrue;
+  if(x<= xarr[0]){
+    result = yarr[0];
+  }
+  else if (x<= xarr[Nx-1]){
+    for (int i = 1; i < Nx;i++){
+      if(x <= xarr[i]){
+        itrue = i;
+        result = (x- xarr[i-1]) * (yarr[i] - yarr[i-1])/(xarr[i] - xarr[i-1]) + yarr[i-1];
+        break;
+      }
+    }
+  }
+  else{
+   result = yarr[Nx-1]; 
+  }
+  return result;
+}
+
+void export_for_plot(string name, vector<double> xarr, vector<double> yarr){
+  int Nx = xarr.size();
+  ofstream file(name);
+  for(int i = 0; i < Nx-1;i++) {
+    file << xarr[i] << " " << yarr[i] << "\n";
+  }
+  file << xarr[Nx-1] << " " << yarr[Nx-1];
+  file.close();
 }
 
 /////////////////////  stuff for the ghosts ///////////////////////////////

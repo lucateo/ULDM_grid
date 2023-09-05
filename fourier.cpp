@@ -1,5 +1,6 @@
 #include "uldm_mpi_2field.h"
 #include <boost/multi_array.hpp>
+#include <cmath>
 
 using namespace std;
 using namespace boost;
@@ -76,6 +77,55 @@ void Fourier::inputSpectrum(double Length, double Npart, double r){
   #pragma omp barrier
 }
 
+// Insert on initial conditions a delta function in Fourier space
+void Fourier::inputDelta(double Length, double Npart, double r){
+  //size_t i,j,k;
+  double amplit= sqrt(Npart *M_PI*Length/r);
+  double r_comparison = r*Length/(2*M_PI);
+  #pragma omp parallel for collapse(3) //not sure whether this is parallelizable
+  for(size_t i=0;i<Nx;i++){
+    for(size_t j=0; j<Nx;j++){
+      for(size_t k=0; k<Nz;k++){
+        size_t realk=world_rank*Nz+k;
+        double k_discrete=
+          sqrt((pow(shift(i,Nx),2) + pow(shift(j,Nx),2) + pow(shift(realk,Nx),2)));
+        if (k_discrete <= r_comparison+0.5 && k_discrete >= r_comparison-0.5 ) {
+          double phase=fRand(0,2*M_PI);
+          rin[i+Nx*j+Nx*Nx*k][0]=amplit*cos(phase); //fill in the real part
+          rin[i+Nx*j+Nx*Nx*k][1]=amplit*sin(phase); //fill in the imaginary part
+        }
+      }
+    }
+  }
+  #pragma omp barrier
+}
+
+// Insert on initial conditions a Heaviside function in Fourier space
+void Fourier::inputTheta(double Length, double Npart, double r){
+  //size_t i,j,k;
+  double count = 0;
+  double amplit= sqrt(6*Npart) * M_PI/r;
+  double r_comparison = r*Length/(2*M_PI);
+  #pragma omp parallel for collapse(3) //not sure whether this is parallelizable
+  for(size_t i=0;i<Nx;i++){
+    for(size_t j=0; j<Nx;j++){
+      for(size_t k=0; k<Nz;k++){
+        size_t realk=world_rank*Nz+k;
+        double k_discrete=
+          sqrt((pow(shift(i,Nx),2) + pow(shift(j,Nx),2) + pow(shift(realk,Nx),2)));
+        if (k_discrete <= r_comparison ) {
+          count++;
+          double phase=fRand(0,2*M_PI);
+          rin[i+Nx*j+Nx*Nx*k][0]=amplit*cos(phase); //fill in the real part
+          rin[i+Nx*j+Nx*Nx*k][1]=amplit*sin(phase); //fill in the imaginary part
+        }
+      }
+    }
+  }
+  #pragma omp barrier
+  cout<<count/(4*M_PI/3*pow(r_comparison,3))<<endl;
+}
+
 //functions needed for the evolution
 //input psi on the array for fftw, note the shift due to the ghost cells
 // whichPsi should be 0 or 1 depending on which field
@@ -94,10 +144,9 @@ void Fourier::inputpsi(multi_array<double,4> &psi, int nghost, int whichPsi){
 }
 
 //function for putting -k^2 factor; more precisely, psi->exp(-i c_alpha dt k^2/2 ) psi
-void Fourier::kfactorpsi(double tstep, double Length, double calpha, int whichPsi, multi_array<double, 1> ratio_mass){
+void Fourier::kfactorpsi(double tstep, double Length, double calpha, double r){
   // I have to distinguish between the two fields, field 1 has the mass ratio r attached
   size_t i,j,k;
-  double r = ratio_mass[whichPsi]; // Correct scaling for the SPE
   #pragma omp parallel for collapse(3)
   for(i=0;i<Nx;i++)
     for(j=0; j<Nx;j++)
@@ -121,6 +170,19 @@ void Fourier::transferpsi(multi_array<double,4> &psi, double factor, int nghost,
       for(k=0; k<Nz;k++){
         psi[2*whichPsi][i][j][k+nghost]=rin[i+Nx*j+Nx*Nx*k][0]*factor;
         psi[2*whichPsi+1][i][j][k+nghost]=rin[i+Nx*j+Nx*Nx*k][1]*factor;
+      }
+  #pragma omp barrier
+}
+
+// Add to psi the result of Fourier transforms, mostly used to stack different initial conditions
+void Fourier::transferpsi_add(multi_array<double,4> &psi, double factor, int nghost, int whichPsi){
+  size_t i,j,k;
+  #pragma omp parallel for collapse(3)
+  for(i=0;i<Nx;i++)
+    for(j=0; j<Nx;j++)
+      for(k=0; k<Nz;k++){
+        psi[2*whichPsi][i][j][k+nghost]+=rin[i+Nx*j+Nx*Nx*k][0]*factor;
+        psi[2*whichPsi+1][i][j][k+nghost]+=rin[i+Nx*j+Nx*Nx*k][1]*factor;
       }
   #pragma omp barrier
 }

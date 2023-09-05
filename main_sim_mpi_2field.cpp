@@ -1,10 +1,11 @@
 #include "uldm_mpi_2field.h"
 #include "uldm_sim_nfw.h"
 #include <boost/multi_array.hpp>
+#include <cmath>
 #include <cstdlib>
 #include <string>
-
-
+#include "eddington.h"
+#include <boost/lexical_cast.hpp>
 //To make it run, an example: mpirun -np 4 main_sim_mpi 128 100 1000 1 1Sol false 4
 
 // Remember to change string_outputname according to where you want to store output files, or
@@ -109,11 +110,100 @@ int main(int argc, char** argv){
       cout<<"You need 9 +2*num_fields arguments to pass to the code: mpi_bool, Nx, Length, numsteps, dt, num_fields, output_profile, output_profile_radial, initial_cond, start_from_backup string, {Npart}, {ratio_masses}" << endl;
   }
 
+  else if (initial_cond == "delta" ) {// Dirac delta on Fourier initial conditions
+    if (argc > 10 +2*num_fields-1){
+      multi_array<double, 1> Nparts(extents[num_fields]);
+      string outputname;
+      if (mpirun_flag==true)
+        outputname = "out_delta/Delta_mpi_nfields_"+to_string(num_fields)+"_Nx" + to_string(Nx) + "_L_" + to_string(Length)
+        + "_";
+      else
+        outputname = "out_delta/Delta_nfields_"+to_string(num_fields)+"_Nx" + to_string(Nx) + "_L_" + to_string(Length)
+        + "_";
+      // string outputname = "out_levkov/out_2fields_Levkov_nopsisqmean_nfields_"+to_string(num_fields)+"_Nx" + to_string(Nx) + "_L_" + to_string(Length)
+      //   + "_";
+      for (int i=0; i<num_fields;i++){
+        Nparts[i] = atof(argv[11+i]); // Number of particles
+        outputname = outputname + "Npart"+to_string(i) +"_"+ to_string(Nparts[i]) + "_";
+      }
+      // 
+      if(num_fields > 1){
+        for(int i=1; i<num_fields;i++){
+          ratio_mass[i] = atof(argv[10+num_fields+i]);
+          outputname = outputname + "rmass"+to_string(i) +"_"+ to_string(ratio_mass[i]) + "_";
+        }
+      }
+      // Check that the inequality Nx > L^2r/4pi^2 is respected
+      for (int i=0; i<num_fields;i++)
+        if (ratio_mass[i]*Length*Length/(2*M_PI*M_PI) >= Nx){
+          cout << "Error: parameters should respect the inequality Nx > L^2r/4pi^2" << endl;
+          return 1;
+        }
+      domain3 D3(Nx,Nz,Length, num_fields,numsteps,dt,outputnumb, outputnumb_profile, outputname, Pointsmax, world_rank,world_size,nghost, mpirun_flag);
+      D3.set_ratio_masses(ratio_mass);
+      D3.set_grid(false);
+      D3.set_grid_phase(false); // It will output 2D slice of phase grid
+      if(start_from_backup=="true")
+        D3.initial_cond_from_backup();
+      else
+        D3.set_delta(Nparts);
+      D3.set_backup_flag(backup_bool);
+      D3.solveConvDif();
+    }
+    else if (world_rank==0)
+      cout<<"You need 9 +2*num_fields arguments to pass to the code: mpi_bool, Nx, Length, numsteps, dt, num_fields, output_profile, output_profile_radial, initial_cond, start_from_backup string, {Npart}, {ratio_masses}" << endl;
+  }
+
+  else if (initial_cond == "theta" ) {// Heaviside on Fourier initial conditions
+    if (argc > 10 +2*num_fields-1){
+      multi_array<double, 1> Nparts(extents[num_fields]);
+      string outputname;
+      if (mpirun_flag==true)
+        outputname = "out_theta/Theta_mpi_nfields_"+to_string(num_fields)+"_Nx" + to_string(Nx) + "_L_" + to_string(Length)
+        + "_";
+      else
+        outputname = "out_theta/Theta_nfields_"+to_string(num_fields)+"_Nx" + to_string(Nx) + "_L_" + to_string(Length)
+        + "_";
+      // string outputname = "out_levkov/out_2fields_Levkov_nopsisqmean_nfields_"+to_string(num_fields)+"_Nx" + to_string(Nx) + "_L_" + to_string(Length)
+      //   + "_";
+      for (int i=0; i<num_fields;i++){
+        Nparts[i] = atof(argv[11+i]); // Number of particles
+        outputname = outputname + "Npart"+to_string(i) +"_"+ to_string(Nparts[i]) + "_";
+      }
+      // 
+      if(num_fields > 1){
+        for(int i=1; i<num_fields;i++){
+          ratio_mass[i] = atof(argv[10+num_fields+i]);
+          outputname = outputname + "rmass"+to_string(i) +"_"+ to_string(ratio_mass[i]) + "_";
+        }
+      }
+      // Check that the inequality Nx > L^2r/4pi^2 is respected
+      for (int i=0; i<num_fields;i++)
+        if (ratio_mass[i]*Length*Length/(2*M_PI*M_PI) >= Nx){
+          cout << "Error: parameters should respect the inequality Nx > L^2r/4pi^2" << endl;
+          return 1;
+        }
+      domain3 D3(Nx,Nz,Length, num_fields,numsteps,dt,outputnumb, outputnumb_profile, outputname, Pointsmax, world_rank,world_size,nghost, mpirun_flag);
+      D3.set_ratio_masses(ratio_mass);
+      D3.set_grid(false);
+      D3.set_grid_phase(false); // It will output 2D slice of phase grid
+      if(start_from_backup=="true")
+        D3.initial_cond_from_backup();
+      else
+        D3.set_theta(Nparts);
+      D3.set_backup_flag(backup_bool);
+      D3.solveConvDif();
+    }
+    else if (world_rank==0)
+      cout<<"You need 9 +2*num_fields arguments to pass to the code: mpi_bool, Nx, Length, numsteps, dt, num_fields, output_profile, output_profile_radial, initial_cond, start_from_backup string, {Npart}, {ratio_masses}" << endl;
+  }
 
   else if (initial_cond == "1Sol" ) {// 1 Soliton initial conditions
     if (argc > 13){
       double rc = atof(argv[11]); // radius of soliton
       int whichpsi = atof(argv[12]); // Of which field you put the soliton
+      for (int i = 0; i <num_fields; i++)
+        ratio_mass[i] = 1; // Initialize all to one as a first step
       ratio_mass[whichpsi] = atof(argv[13]);
       string outputname = "out_mpi/out_test/out_2fields_1Sol_nopsisqmean_Nx" + to_string(Nx) +"_rmass_"
         + to_string(ratio_mass[whichpsi]) + "_L_" + to_string(Length)
@@ -131,6 +221,38 @@ int main(int argc, char** argv){
     }
     else if (world_rank==0)
       cout<<"You need 13 arguments to pass to the code: mpi_bool, Nx, Length, numsteps, dt, num_fields, output_profile, output_profile_radial, initial_cond, start_from_backup string, rc, which_field, ratio_mass[which_field]" << endl;
+  }
+  
+  else if (initial_cond == "eddington_nfw" ) {// Heaviside on Fourier initial conditions
+    if (argc > 15){
+      int field_id = atoi(argv[11]); // The field where to put the Eddington generated NFW profile
+      ratio_mass[field_id] = atof(argv[12]); // If nfields=1, this should be set to one
+      string outputname;
+      if (mpirun_flag==true)
+        outputname = "out_Eddington/Eddington_NFW_mpi_nfields_"+to_string(num_fields)+"_Nx" + to_string(Nx) + "_L_" + to_string(Length)
+        + "_";
+      else
+        outputname = "out_Eddington/Eddington_NFW_nfields_"+to_string(num_fields)+"_Nx" + to_string(Nx) + "_L_" + to_string(Length)
+        + "_";
+      double rs = atof(argv[13]); // NFW scale radius
+      double rhos = atof(argv[14]); // NFW normalization
+      double rmax = atof(argv[15]); // NFW max radius
+      outputname = outputname + "rs_" + to_string(rs) + "_rhos_" + lexical_cast<string>(rhos)+ "_";
+      domain3 D3(Nx,Nz,Length, num_fields,numsteps,dt,outputnumb, outputnumb_profile, outputname, Pointsmax, world_rank,world_size,nghost, mpirun_flag);
+      D3.set_ratio_masses(ratio_mass);
+      D3.set_grid(false);
+      D3.set_grid_phase(false); // It will output 2D slice of phase grid
+      NFW profile = NFW(rs, rhos, rmax, false);
+      Eddington eddington = Eddington(&profile);
+      if(start_from_backup=="true")
+        D3.initial_cond_from_backup();
+      else
+        D3.setEddington(&eddington, 500, 1E-1, rmax);
+      D3.set_backup_flag(backup_bool);
+      D3.solveConvDif();
+    }
+    else if (world_rank==0)
+      cout<<"You need 15 arguments to pass to the code: mpi_bool, Nx, Length, numsteps, dt, num_fields, output_profile, output_profile_radial, initial_cond, start_from_backup string, field_id, ratio_mass, rs, rhos, rmax" << endl;
   }
   else if (initial_cond == "Schive" ) {// Schive initial conditions
     if (argc > 13){
@@ -206,8 +328,9 @@ int main(int argc, char** argv){
         Nparts[i] = atof(argv[13+i]); // Number of particles
         outputname = outputname + "Npart"+to_string(i) +"_"+ to_string(Nparts[i]) + "_";
       }
-      domain_ext_nfw D3(Nx,Nz,Length,num_fields,numsteps,dt,outputnumb, outputnumb_profile, outputname, Pointsmax, 
-        world_rank,world_size,nghost,mpirun_flag, rs_nfw, const_nfw);
+      NFW profile = NFW(rs_nfw, rho0_tilde, Length/2, false);
+      domain_ext D3(Nx,Nz,Length,num_fields,numsteps,dt,outputnumb, outputnumb_profile, outputname, Pointsmax, 
+        world_rank,world_size,nghost,mpirun_flag, &profile);
       if(num_fields > 1){
         for(int i=1; i<num_fields;i++){
           ratio_mass[i] = atof(argv[12+num_fields+i]);
@@ -228,7 +351,7 @@ int main(int argc, char** argv){
   }
   else if (world_rank==0){
     cout<< "String in 9th position does not match any possible initial conditions; possible initial conditions are:" << endl;
-    cout<< "Schive , Mocz , deterministic , levkov, 1Sol, NFW" <<endl;
+    cout<< "Schive , Mocz , deterministic , levkov, delta, theta, 1Sol, NFW" <<endl;
   }
   if(mpirun_flag==true){
     MPI_Finalize();

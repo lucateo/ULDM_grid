@@ -16,7 +16,7 @@
 #include "boost/multi_array.hpp"
 #include <fftw3-mpi.h>
 #include <mpi.h>
-
+// #include "eddington.h"
 
 using namespace std;
 using namespace boost;
@@ -36,7 +36,7 @@ extern double derivative_3point(double f1_plus, double f1_minus, double f2_plus,
                                 double f2_minus, double f3_plus, double f3_minus);
   
 // Soliton profile in grid units
-extern double psi_soliton(double r_c, double r);
+extern double psi_soliton(double r_c, double r, double ratio);
 
 /////////////////////  stuff for the ghosts ///////////////////////////////
 // New function to send
@@ -45,6 +45,15 @@ extern void sendg( multi_array<double,4>  &grid,int ii, int world_rank, int worl
 extern void receiveg(multi_array<double,4> &grid,int ii,  int world_rank, int world_size, int dir, int nghost);
 // MPI stuff to sort out the ghosts
 extern void transferghosts( multi_array<double,4> &gr,int ii, int world_rank, int world_size, int nghost);// Class for the Fourier Transform
+
+extern vector<double> num_second_derivative(vector<double> & xarr, vector<double> & yarr);
+extern multi_array<double,1> Integral_trapezoid(multi_array<double,1> & xarr, multi_array<double,1> & yarr);
+extern double interpolant(double x, vector<double> & xarr, vector<double> & yarr);
+extern void export_for_plot(string name, vector<double> xarr, vector<double> yarr);
+
+class Eddington;  // Forward declaration, to avoid multiple headers calling each other issues
+// class Profile; // Forward declaration, to avoid multiple headers calling each other issues
+// class NFW; // Forward declaration, to avoid multiple headers
 
 // File printing functions; template class should be defined in the header
 template<class T1>
@@ -152,14 +161,20 @@ class Fourier{
     void inputsamplegrid();
     // Insert on initial conditions the Levkov waves
     void inputSpectrum(double Length, double Npart, double r);
+    // Insert on initial conditions the delta in Fourier space
+    void inputDelta(double Length, double Npart, double r);
+    // Insert on initial conditions the Heaviside in Fourier space
+    void inputTheta(double Length, double Npart, double r);
     //functions needed for the evolution
     //input psi on the array for fftw, note the shift due to the ghost cells
     // whichPsi should be 0 or 1 depending on which field
     void inputpsi(multi_array<double,4> &psi, int nghost, int whichPsi);
     //function for putting -k^2 factor; more precisely, psi->exp(-i c_alpha dt k^2/2 ) psi
-    void kfactorpsi(double tstep, double Length, double calpha, int whichPsi, multi_array<double, 1> ratio_mass);
+    void kfactorpsi(double tstep, double Length, double calpha, double r);
     // Put on psi the result of Fourier transforms
     void transferpsi(multi_array<double,4> &psi, double factor, int nghost, int whichPsi);  
+    // Add to psi the result of Fourier transforms, for stacking initial conditions
+    void transferpsi_add(multi_array<double,4> &psi, double factor, int nghost, int whichPsi);  
     // input |psi|^2 to the memory that will be FTed
     // virtual, for inheritance (in case one wants to use an external potential
     virtual void inputPhi(multi_array<double,4> &psi_in, int nghost, int nfields);
@@ -292,6 +307,11 @@ class domain3{
       void setManySolitons_deterministic(double r_c, int num_sol);
       // Levkov like initial conditions
       void set_waves_Levkov(multi_array<double, 1> Npart);
+      // Sets delta in Fourier space initial conditions
+      void set_delta(multi_array<double, 1> Npart);
+      // Sets Heaviside in Fourier space initial conditions
+      void set_theta(multi_array<double, 1> Npart);
+      void setEddington(Eddington *eddington, int numpoints, double radmin, double radmax);
 
        // functions below not adapted for MPI yet
  /*

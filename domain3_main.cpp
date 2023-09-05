@@ -29,7 +29,8 @@ domain3::domain3(size_t PS,size_t PSS, double L, int n_fields, int Numsteps, dou
   world_size(WS)
   {
     deltaX=Length/PointsS;
-    ratio_mass[0]=1; // the first mass ratio is always 1
+    for (int i=0; i<n_fields; i++)
+      ratio_mass[i]=1; // the first mass ratio is always 1, but initialize everything to one
     // stepping numbers, as defined in axionyx documentation
     ca[0]=0.39225680523878;   ca[1]=0.51004341191846;   ca[2] =-0.47105338540976; ca[3]=0.06875316825251;    ca[4]=0.06875316825251;    ca[5]=-0.47105338540976;  ca[6]=0.51004341191846;   ca[7]=0.39225680523878;
     da[0]=0.784513610477560;  da[1]=0.235573213359359;  da[2]=-1.17767998417887;  da[3]=1.3151863206839023;  da[4]=-1.17767998417887;   da[5]=0.235573213359359;  da[6]=0.784513610477560;  da[7]=0;
@@ -228,7 +229,7 @@ void domain3::makestep(double stepCurrent, double tstep){ // makes a step in a d
     for(int whichF=0;whichF<nfields;whichF++){
       fgrid.inputpsi(psi,nghost,whichF);
       fgrid.calculateFT();                                                  //calculates the FT
-      fgrid.kfactorpsi(tstep,Length,ca[alpha],whichF,ratio_mass);                             //multiples the psi by exp(-i c_\alpha dt k^2/2)
+      fgrid.kfactorpsi(tstep,Length,ca[alpha],ratio_mass[whichF]);                             //multiples the psi by exp(-i c_\alpha dt k^2/2)
       fgrid.calculateIFT();                                                 //calculates the inverse FT
       fgrid.transferpsi(psi,1./pow(PointsS,3),nghost,whichF);                             //divides it by 1/PS^3 (to get the correct normalizaiton of the FT)
     }
@@ -261,8 +262,7 @@ void domain3::makestep(double stepCurrent, double tstep){ // makes a step in a d
 
 void domain3::solveConvDif(){
   int beginning=time(NULL);
-  //every 1 time steps, check the energy, for adaptive time step; it will be changed depending on the energy
-  int check_energy = 1; 
+  int count_energy=0; // count how many times you decrease the time step before changing to E_tot_running
   if (start_from_backup == true)
     openfiles_backup();
   else
@@ -294,7 +294,8 @@ void domain3::solveConvDif(){
       i++;
     }
   }
-  E_tot_initial = 0;
+  E_tot_initial = 0; // The very initial energy
+  double E_tot_running = 0; // The total energy when the time step decreases
   for(int i=0;i<nfields;i++){
     E_tot_initial += e_kin_full1(i) + full_energy_pot(i);
   }
@@ -313,27 +314,24 @@ void domain3::solveConvDif(){
       }
       snapshot(stepCurrent); 
     }
-    if(stepCurrent%check_energy==0){
-      double etot_current = 0;
-      // double the n of steps (sort of, you just check that stepcurrent is divisible by check_energy) 
-      // after you check the energy
-      check_energy = 2*check_energy;
-      for(int i=0;i<nfields;i++){
-        etot_current += e_kin_full1(i) + full_energy_pot(i);
+    double etot_current = 0;
+    for(int i=0;i<nfields;i++){
+      etot_current += e_kin_full1(i) + full_energy_pot(i);
+    }
+    cout<<"E tot current "<<etot_current<<endl;
+    // Criterium for dropping by half the time step if energy is not conserved well enough
+    if(abs(etot_current-E_tot_initial)/abs(etot_current + E_tot_initial) > 0.001 ){
+      dt = dt/2;
+      E_tot_running = etot_current;
+      count_energy++;
+      if (abs(etot_current-E_tot_running)/abs(etot_current + E_tot_running) < 0.0001 && count_energy > 2){
+        E_tot_initial = E_tot_running;
+        count_energy = 0;
+        cout<<"Switch energy" <<endl;
       }
-      // Criterium for dropping by half the time step if energy is not conserved well enough
-      if(abs(etot_current-E_tot_initial)/abs(etot_current + E_tot_initial) > 0.001 ){
-        dt = dt/2;
-        E_tot_initial = etot_current;
-        // Reduce the amount of times you check the energy (halfing it), but do not go below 1
-        check_energy=max((int)check_energy/4,1);
-      }
-      else if(abs(etot_current-E_tot_initial)/abs(etot_current +E_tot_initial)<0.0001){
-        dt = dt*2;
-      }
-    // The final check_energy should not surpass numoutput_profile
-    check_energy = min(check_energy, numoutputs_profile);
-    cout<<"Check energy "<<check_energy<<endl;
+    }
+    else if(abs(etot_current-E_tot_initial)/abs(etot_current +E_tot_initial)<0.0001){
+      dt = dt*1.2; // Less aggressive when increasing the time step, rather than when decreasing it
     }
     if(stepCurrent%numoutputs_profile==0 || stepCurrent==numsteps) {
       if (mpi_bool==true){ 
