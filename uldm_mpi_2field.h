@@ -223,6 +223,7 @@ class domain3{
     ofstream timesfile_grid;  //output file for grid
     ofstream timesfile_profile;  //output file for useful information (total energies etc.)
     ofstream info_initial_cond;  //output file for initial condition details
+    bool first_initial_cond; // Starts from true, it becomes false when you insert an initial condition; to change to append mode on info_initial_condition file (when false)
     int snapshotcount=0;          //variable to number the snapshots
     bool Grid3D = false; // If true, it outputs the full density on the 3D grid; if false (recommended), it outputs the 2D projection of the density profile
     bool phaseGrid = false; // If true, it outputs the phase slice passing on the center
@@ -311,7 +312,7 @@ class domain3{
       void set_delta(multi_array<double, 1> Npart);
       // Sets Heaviside in Fourier space initial conditions
       void set_theta(multi_array<double, 1> Npart);
-      void setEddington(Eddington *eddington, int numpoints, double radmin, double radmax);
+      void setEddington(Eddington *eddington, int numpoints, double radmin, double radmax, int fieldid, double ratiomass);
 
        // functions below not adapted for MPI yet
  /*

@@ -1,6 +1,8 @@
 #ifndef EDDINGTON_H
 #define EDDINGTON_H
 #include "uldm_mpi_2field.h"
+#include <cmath>
+#include <math.h>
 
 #define MSUN 1.989E30 // In kg
 #define EV2JOULE 1.6021E-19
@@ -24,6 +26,7 @@ class Profile{
     bool analytic_Eddington;
     vector<double> params; // Vector containing all the parameters of the profile
     vector<string> params_name; // Vector containing string with name of the parameters
+    string name_profile; // Name of the profile
     Profile() {};
     ~Profile() {};
     // Sintax to define a pure virtual function, to be declared afterwards
@@ -41,23 +44,24 @@ class NFW: public Profile{
     double Rs;
     double Rhos;
     double Rmax;
-    bool piG4_factor = true; // If false, removes the 4 pi G factor (for dimensionless units)
-    double convert_potential = MSUN/pow(CLIGHT,2)/1e3/PC2METER;  
+    bool dimensionless_units = false; // If true, put G -> 1/(4\pi) for dimensionless units
+    double G_eff = G_ASTRO;
   public:
-    NFW(double rs, double rhos, double rmax, bool pig4): Profile{}, Rs(rs), Rhos(rhos), Rmax(rmax), piG4_factor(pig4) {
+    NFW(double rs, double rhos, double rmax, bool dimless_bool): Profile{}, Rs(rs), Rhos(rhos), Rmax(rmax), dimensionless_units(dimless_bool) {
         analytic_Eddington = false;
+        name_profile= "NFW";
         params.push_back(rs); params.push_back(rhos); params.push_back(rmax);
         params_name.push_back("Rs"); params_name.push_back("rhos"); params_name.push_back("Rmax");
-        if(pig4 == false) convert_potential = 1 /(4*M_PI*GCONST);
+        if(dimensionless_units == true) G_eff = 1 /(4*M_PI);
       };
     NFW() {};
     ~NFW() {};
     double potential(double r){
       double result; 
       if (r!=0)
-        result = -convert_potential*4*M_PI*GCONST*Rhos*pow(Rs,3)/r * log(1 + r/Rs);
+        result = -4*M_PI*G_eff*Rhos*pow(Rs,3)/r * log(1 + r/Rs);
       else
-        result= -convert_potential*4*M_PI*GCONST*Rhos*pow(Rs,2);
+        result= -4*M_PI*G_eff*Rhos*pow(Rs,2);
       return result;
     }
     double density(double r){ // rhos in M_sun/kpc^3, rs in kpc, r in kpc
@@ -70,7 +74,7 @@ class NFW: public Profile{
       return 4*M_PI*Rhos*pow(Rs,3)*(log(1+rmax/Rs) + Rs/(Rs + rmax) -1);
     }
     double analytic_small_radius(double psi){//Analitic second derivative d^2\rho/dpsi^2 for small radius
-      double convert = 4*M_PI*G_ASTRO*pow(Rs,2)*Rhos;
+      double convert = 4*M_PI*G_eff*pow(Rs,2)*Rhos;
       return -convert*Rhos/pow(psi-convert-potential(Rmax),3);
     }
     double analytic_d2rho_dpsi(double psi) {return -1;} // No analytic
@@ -82,17 +86,20 @@ class Plummer: public Profile{
     double M0; // Mass associated
     double Rs; // Scale radius
     double Rmax;
-    bool analytic_Eddington = true;
+    bool dimensionless_units = false; // If true, put G -> 1/(4\pi) for dimensionless units
+    double G_eff = G_ASTRO;
   public:
-    Plummer(double rs, double m0, double rmax): Profile{}, Rs(rs), M0(m0), Rmax(rmax) {
+    Plummer(double rs, double m0, double rmax, bool dimless_bool): Profile{}, Rs(rs), M0(m0), Rmax(rmax), dimensionless_units(dimless_bool) {
       analytic_Eddington = true;
+      name_profile = "Plummer";
       params.push_back(rs); params.push_back(m0); params.push_back(rmax);
       params_name.push_back("Rs"); params_name.push_back("M0"); params_name.push_back("Rmax");
+      if(dimensionless_units == true) G_eff = 1 /(4*M_PI);
     };
     Plummer() {};
     ~Plummer() {};
     double potential(double r){
-      return -G_ASTRO*M0/sqrt(r*r + Rs*Rs);
+      return -G_eff*M0/sqrt(r*r + Rs*Rs);
     }
     double density(double r){ // rhos in M_sun/kpc^3, rs in kpc, r in kpc
       return 3*M0/(4*M_PI*pow(Rs,3))*pow(1+pow(r/Rs,2) ,-5./2);
@@ -108,12 +115,15 @@ class Plummer: public Profile{
     // }
     double analytic_d2rho_dpsi(double psi) {
       double phimax = potential(Rmax);
-      return 15*Rs*Rs/(pow(G_ASTRO,5)*pow(M0,4)*M_PI) * pow(psi-phimax,3);
+      return 15*Rs*Rs/(pow(G_eff,5)*pow(M0,4)*M_PI) * pow(psi-phimax,3);
+    }
+    double analytic_small_radius(double psi){//Analitic second derivative d^2\rho/dpsi^2 for small radius; but analytic result here is known
+      return analytic_d2rho_dpsi(psi);
     }
     double analytic_fE(double psi) {
       double phimax = potential(Rmax);
-      double result = 24*sqrt(2)*Rs*Rs/(7*pow(M_PI,3)*pow(M0,4)*pow(G_ASTRO,5)) * pow(psi,7./2);
-      result = result + 3*sqrt(psi)/(7*sqrt(2)*pow(M_PI,3))*(-56*psi*psi*phimax + 70*psi*phimax*phimax-35*pow(phimax,3));
+      double prefact = 3*sqrt(psi)* Rs*Rs/( 7*sqrt(2)*pow(M_PI,3)*pow(M0,4)*pow(G_eff,5) );
+      double result = prefact*(16 * pow(psi,3)-56*psi*psi*phimax +70*psi*phimax*phimax -35*pow(phimax,3)) ;
       return result;
     }
 };
@@ -142,13 +152,12 @@ class Eddington{
         // Go with inverse order, ordering psi from smallest to largest
         double radius = pow(10, (log10(rmax) -log10(rmin))/(numpoints-1) * (numpoints-1-i) +log10(rmin) ); // Log spaced
         double psi = profile->Psi(radius);
-        if(abs((psi - psiarr[j])/(psi + psiarr[j])) > 1E-7){
+        if(abs((psi - psiarr[j])/(psi + psiarr[j])) > 1E-7){ // If the relativ change is larger than 1e-7, accept the point (to avoid very tiny changes in psi)
           rho_arr.push_back(profile->density(radius));
           psiarr.push_back(profile->Psi(radius));
           j++;
         }
       }
-      cout << psiarr.size() << endl;
       d2rhodpsi2_arr = num_second_derivative(psiarr,rho_arr);
       psi_arr = psiarr;
     }

@@ -5,10 +5,10 @@ using namespace boost;
 
 void domain3::openfiles(){ // It opens all the output files, and it inserts an initial {
   if(world_rank==0){
-  timesfile_grid.open(outputname+"times_grid.txt");       timesfile_grid<<"{";   timesfile_grid.setf(ios_base::fixed);
-  timesfile_profile.open(outputname+"times_profile.txt");       timesfile_profile<<"{";   timesfile_profile.setf(ios_base::fixed);
-  profilefile.open(outputname+"profiles.txt");  profilefile<<"{"; profilefile.setf(ios_base::fixed);
-  phase_slice.open(outputname+"phase_slice.txt");  phase_slice<<"{"; phase_slice.setf(ios_base::fixed);
+    timesfile_grid.open(outputname+"times_grid.txt");       timesfile_grid<<"{";   timesfile_grid.setf(ios_base::fixed);
+    timesfile_profile.open(outputname+"times_profile.txt");       timesfile_profile<<"{";   timesfile_profile.setf(ios_base::fixed);
+    profilefile.open(outputname+"profiles.txt");  profilefile<<"{"; profilefile.setf(ios_base::fixed);
+    phase_slice.open(outputname+"phase_slice.txt");  phase_slice<<"{"; phase_slice.setf(ios_base::fixed);
   }
   // This you have to open on all nodes, if mpi_bool==true, append the world_rank to the file name
   if(mpi_bool==true){

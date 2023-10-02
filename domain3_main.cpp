@@ -29,6 +29,7 @@ domain3::domain3(size_t PS,size_t PSS, double L, int n_fields, int Numsteps, dou
   world_size(WS)
   {
     deltaX=Length/PointsS;
+    first_initial_cond = true; // To deal with append modes in initial condition info output file
     for (int i=0; i<n_fields; i++)
       ratio_mass[i]=1; // the first mass ratio is always 1, but initialize everything to one
     // stepping numbers, as defined in axionyx documentation
@@ -308,12 +309,6 @@ void domain3::solveConvDif(){
     makestep(stepCurrent,dt);
     tcurrent=tcurrent+dt;
     stepCurrent=stepCurrent+1;
-    if(stepCurrent%numoutputs==0 || stepCurrent==numsteps) {
-      if (mpi_bool==true){ 
-        sortGhosts(); // Should be called, to do derivatives in real space
-      }
-      snapshot(stepCurrent); 
-    }
     double etot_current = 0;
     for(int i=0;i<nfields;i++){
       etot_current += e_kin_full1(i) + full_energy_pot(i);
@@ -333,16 +328,22 @@ void domain3::solveConvDif(){
     else if(abs(etot_current-E_tot_initial)/abs(etot_current +E_tot_initial)<0.0001){
       dt = dt*1.2; // Less aggressive when increasing the time step, rather than when decreasing it
     }
-    if(stepCurrent%numoutputs_profile==0 || stepCurrent==numsteps) {
+    if(stepCurrent%numoutputs==0 || stepCurrent==numsteps) {
       if (mpi_bool==true){ 
         sortGhosts(); // Should be called, to do derivatives in real space
       }
-      snapshot_profile(stepCurrent);
+      snapshot(stepCurrent); 
       exportValues(); // for backup purposes
       ofstream phi_final;
       outputfullPhi(phi_final);
       ofstream psi_final;
       outputfullPsi(psi_final);
+    }
+    if(stepCurrent%numoutputs_profile==0 || stepCurrent==numsteps) {
+      if (mpi_bool==true){ 
+        sortGhosts(); // Should be called, to do derivatives in real space
+      }
+      snapshot_profile(stepCurrent);
     }
   }
   closefiles();

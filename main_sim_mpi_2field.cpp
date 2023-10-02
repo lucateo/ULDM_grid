@@ -5,7 +5,6 @@
 #include <cstdlib>
 #include <string>
 #include "eddington.h"
-#include <boost/lexical_cast.hpp>
 //To make it run, an example: mpirun -np 4 main_sim_mpi 128 100 1000 1 1Sol false 4
 
 // Remember to change string_outputname according to where you want to store output files, or
@@ -13,14 +12,14 @@
 int main(int argc, char** argv){
   // Inputs
   string mpi_string = argv[1]; // string to check if mpirun is used, put 1 to use mpi
-  int Nx = atof(argv[2]);                       //number of gridpoints
-  double Length= atof(argv[3]);                 //box Length in units of m
-  int numsteps= atof(argv[4]);                   //Number of steps
-  double dt= atof(argv[5]);                     //timeSpacing,  tf/Nt
+  int Nx = atof(argv[2]); //number of gridpoints
+  double Length= atof(argv[3]); //box Length in units of m
+  int numsteps= atof(argv[4]);//Number of steps
+  double dt= atof(argv[5]);//timeSpacing,  tf/Nt
   int num_fields = atof(argv[6]); // number of fields
   int outputnumb=atof(argv[7]);// Number of steps before outputs the sliced (if Grid3D==false) or full 3D grid (if Grid3D==true) density profile (for animation)
   int outputnumb_profile=atof(argv[8]);//number of steps before outputs for radial profiles
-  string initial_cond = argv[9];
+  string initial_cond = argv[9]; // String which specifies the initial condition
   string start_from_backup = argv[10]; // true or false, depending on whether you want to start from a backup or not
   
   // mpi 
@@ -36,7 +35,7 @@ int main(int argc, char** argv){
     cout<< "threads ok? "<<threads_ok<<endl;
     fftw_init_threads();
     fftw_mpi_init();
-    // Find out rank of the particular process and the overal number of processes being run
+    // Find out rank of the particular process and the overall number of processes being run
     MPI_Comm_rank(MPI_COMM_WORLD, &world_rank);
     MPI_Comm_size(MPI_COMM_WORLD, &world_size);
     if(world_rank==0){cout<<" world size is "<<world_size<<endl;}
@@ -44,7 +43,7 @@ int main(int argc, char** argv){
         fprintf(stderr, "World size must be greater than 1 for %s\n", argv[0]);
         MPI_Abort(MPI_COMM_WORLD, 1); }
   }
-  else {
+  else { // If mpi is not true
     world_rank = 0;
     nghost = 0;
     world_size=1;
@@ -62,9 +61,8 @@ int main(int argc, char** argv){
   }
   // and as a result, points in the short direction
   int Nz= (Nx)/world_size;
-  double dx = Length/Nx;                            //latticeSpacing, dx=L/Nx, L in units of m
+  double dx = Length/Nx; //latticeSpacing, dx=L/Nx, L in units of m
   int Pointsmax = Nx/2; //Number of maximum points which are plotted in profile function
-  // This is to tell which initial condition you want to run
   bool backup_bool = false;
   if (start_from_backup == "true")
     backup_bool = true;
@@ -74,7 +72,7 @@ int main(int argc, char** argv){
   // Apply initial conditions
   if (initial_cond == "levkov" ) {// Levkov initial conditions
     if (argc > 10 +2*num_fields-1){
-      multi_array<double, 1> Nparts(extents[num_fields]);
+      multi_array<double, 1> Nparts(extents[num_fields]); // Array of number of particls for the different fields
       string outputname;
       if (mpirun_flag==true)
         outputname = "out_levkov_new/Levkov_mpi_nfields_"+to_string(num_fields)+"_Nx" + to_string(Nx) + "_L_" + to_string(Length)
@@ -223,8 +221,8 @@ int main(int argc, char** argv){
       cout<<"You need 13 arguments to pass to the code: mpi_bool, Nx, Length, numsteps, dt, num_fields, output_profile, output_profile_radial, initial_cond, start_from_backup string, rc, which_field, ratio_mass[which_field]" << endl;
   }
   
-  else if (initial_cond == "eddington_nfw" ) {// Heaviside on Fourier initial conditions
-    if (argc > 15){
+  else if (initial_cond == "eddington_nfw" ) {// NFW Eddington initial conditions
+    if (argc > 14){
       int field_id = atoi(argv[11]); // The field where to put the Eddington generated NFW profile
       ratio_mass[field_id] = atof(argv[12]); // If nfields=1, this should be set to one
       string outputname;
@@ -236,23 +234,90 @@ int main(int argc, char** argv){
         + "_";
       double rs = atof(argv[13]); // NFW scale radius
       double rhos = atof(argv[14]); // NFW normalization
-      double rmax = atof(argv[15]); // NFW max radius
-      outputname = outputname + "rs_" + to_string(rs) + "_rhos_" + lexical_cast<string>(rhos)+ "_";
+      // double rmax = atof(argv[15]); // NFW max radius
+      outputname = outputname + "rs_" + to_string(rs) + "_rhos_" + to_string(rhos)+ "_";
       domain3 D3(Nx,Nz,Length, num_fields,numsteps,dt,outputnumb, outputnumb_profile, outputname, Pointsmax, world_rank,world_size,nghost, mpirun_flag);
       D3.set_ratio_masses(ratio_mass);
       D3.set_grid(false);
       D3.set_grid_phase(false); // It will output 2D slice of phase grid
-      NFW profile = NFW(rs, rhos, rmax, false);
+      NFW profile = NFW(rs, rhos, Length, true);// The actual max radius is between Length and Length/2
       Eddington eddington = Eddington(&profile);
       if(start_from_backup=="true")
         D3.initial_cond_from_backup();
       else
-        D3.setEddington(&eddington, 500, 1E-1, rmax);
+        D3.setEddington(&eddington, 500, Length/Nx, Length, field_id, ratio_mass[field_id]); // The actual max radius is between Length and Length/2
       D3.set_backup_flag(backup_bool);
       D3.solveConvDif();
     }
     else if (world_rank==0)
-      cout<<"You need 15 arguments to pass to the code: mpi_bool, Nx, Length, numsteps, dt, num_fields, output_profile, output_profile_radial, initial_cond, start_from_backup string, field_id, ratio_mass, rs, rhos, rmax" << endl;
+      cout<<"You need 14 arguments to pass to the code: mpi_bool, Nx, Length, numsteps, dt, num_fields, output_profile, output_profile_radial, initial_cond, start_from_backup string, field_id, ratio_mass, rs, rhos" << endl;
+  }
+  else if (initial_cond == "eddington_plummer" ) {// Plummer Eddington initial conditions
+    if (argc > 14){
+      int field_id = atoi(argv[11]); // The field where to put the Eddington generated NFW profile
+      ratio_mass[field_id] = atof(argv[12]); // If nfields=1, this should be set to one
+      string outputname;
+      if (mpirun_flag==true)
+        outputname = "out_Eddington/Eddington_Plummer_mpi_nfields_"+to_string(num_fields)+"_Nx" + to_string(Nx) + "_L_" + to_string(Length)
+        + "_";
+      else
+        outputname = "out_Eddington/Eddington_Plummer_nfields_"+to_string(num_fields)+"_Nx" + to_string(Nx) + "_L_" + to_string(Length)
+        + "_";
+      double rs = atof(argv[13]); // Plummer scale radius
+      double m0 = atof(argv[14]); // Plummer mass normalization
+      outputname = outputname + "rs_" + to_string(rs) + "_M0_" + to_string(m0)+ "_";
+      domain3 D3(Nx,Nz,Length, num_fields,numsteps,dt,outputnumb, outputnumb_profile, outputname, Pointsmax, world_rank,world_size,nghost, mpirun_flag);
+      D3.set_ratio_masses(ratio_mass);
+      D3.set_grid(false);
+      D3.set_grid_phase(false); // It will output 2D slice of phase grid
+      Plummer profile = Plummer(rs, m0, Length, true);// The actual max radius is between Length and Length/2
+      Eddington eddington = Eddington(&profile);
+      if(start_from_backup=="true")
+        D3.initial_cond_from_backup();
+      else
+        D3.setEddington(&eddington, 500, Length/Nx, Length, field_id, ratio_mass[field_id]); // The actual max radius is between Length and Length/2
+      D3.set_backup_flag(backup_bool);
+      D3.solveConvDif();
+    }
+    else if (world_rank==0)
+      cout<<"You need 14 arguments to pass to the code: mpi_bool, Nx, Length, numsteps, dt, num_fields, output_profile, output_profile_radial, initial_cond, start_from_backup string, field_id, ratio_mass, rs, M0" << endl;
+  }
+  else if (initial_cond == "eddington_nfw_levkov" ) {// NFW Eddington initial conditions for field 1 plus levkov for field 0
+    if (argc > 14){
+      double Nparts = atof(argv[11]); // Levkov initial condition parameter
+      ratio_mass[1] = atof(argv[12]); // If nfields=1, this should be set to one
+      string outputname;
+      if (mpirun_flag==true)
+        outputname = "out_Eddington/NFW_Levkov_mpi_nfields_Nx" + to_string(Nx) + "_L_" + to_string(Length)
+        + "_Nparts_" + to_string(Nparts) + "_ratiomass_"+ to_string(ratio_mass[1]) + "_";
+      else
+        outputname = "out_Eddington/NFW_Levkov_nfields_"+to_string(num_fields)+"_Nx" + to_string(Nx) + "_L_" + to_string(Length)
+        + "_Nparts_" + to_string(Nparts) + "_ratiomass_"+ to_string(ratio_mass[1]) + "_";
+      double rs = atof(argv[13]); // NFW scale radius
+      double rhos = atof(argv[14]); // NFW normalization
+      // double rmax = atof(argv[15]); // NFW max radius
+      outputname = outputname + "rs_" + to_string(rs) + "_rhos_" + to_string(rhos)+ "_";
+      domain3 D3(Nx,Nz,Length, num_fields,numsteps,dt,outputnumb, outputnumb_profile, outputname, Pointsmax, world_rank,world_size,nghost, mpirun_flag);
+      D3.set_ratio_masses(ratio_mass);
+      D3.set_grid(false);
+      D3.set_grid_phase(false); // It will output 2D slice of phase grid
+      NFW profile = NFW(rs, rhos, Length, true);// The actual max radius is between Length and Length/2
+      Eddington eddington = Eddington(&profile);
+      multi_array<double, 1> Nparts_arr(extents[num_fields]);
+      Nparts_arr[0] = Nparts;
+      Nparts_arr[1] = 0; // The second field has just Eddington NFW
+      
+      if(start_from_backup=="true")
+        D3.initial_cond_from_backup();
+      else{
+        D3.setEddington(&eddington, 500, Length/Nx, Length, 1, ratio_mass[1]); // The actual max radius is between Length and Length/2
+        D3.set_waves_Levkov(Nparts_arr);
+      }
+      D3.set_backup_flag(backup_bool);
+      D3.solveConvDif();
+    }
+    else if (world_rank==0)
+      cout<<"You need 14 arguments to pass to the code: mpi_bool, Nx, Length, numsteps, dt, num_fields, output_profile, output_profile_radial, initial_cond, start_from_backup string, Npart, ratio_mass, rs, rhos" << endl;
   }
   else if (initial_cond == "Schive" ) {// Schive initial conditions
     if (argc > 13){
@@ -320,15 +385,20 @@ int main(int argc, char** argv){
       multi_array<double, 1> Nparts(extents[num_fields]);
       double rho0_tilde = atof(argv[11]);//Adimensional rho_0 for the NFW external potential
       double rs_nfw = atof(argv[12]); // Number of particles
-      double const_nfw = rho0_tilde/(4*M_PI);// The constant which enters domain_ext_nfw class
-      string outputname = "out_mpi/out_test/out_2fields_nfw_NoCenterAverage_Nx" + to_string(Nx) + "_L_" + to_string(Length)
+      string outputname;
+      if (mpirun_flag == true)
+        outputname = "out_ext_nfw/out_nfw_mpi_NoCenterAverage_Nx" + to_string(Nx) + "_L_" + to_string(Length)
+            + "_Rs_" + to_string(rs_nfw) + "_rh0tilde_" + to_string(rho0_tilde)+ "_Npart_"
+            +"_";
+      else
+        outputname = "out_ext_nfw/out_nfw_NoCenterAverage_Nx" + to_string(Nx) + "_L_" + to_string(Length)
             + "_Rs_" + to_string(rs_nfw) + "_rh0tilde_" + to_string(rho0_tilde)+ "_Npart_"
             +"_";
       for (int i=0; i<num_fields;i++){
         Nparts[i] = atof(argv[13+i]); // Number of particles
         outputname = outputname + "Npart"+to_string(i) +"_"+ to_string(Nparts[i]) + "_";
       }
-      NFW profile = NFW(rs_nfw, rho0_tilde, Length/2, false);
+      NFW profile = NFW(rs_nfw, rho0_tilde, Length/2, true);
       domain_ext D3(Nx,Nz,Length,num_fields,numsteps,dt,outputnumb, outputnumb_profile, outputname, Pointsmax, 
         world_rank,world_size,nghost,mpirun_flag, &profile);
       if(num_fields > 1){
@@ -351,7 +421,7 @@ int main(int argc, char** argv){
   }
   else if (world_rank==0){
     cout<< "String in 9th position does not match any possible initial conditions; possible initial conditions are:" << endl;
-    cout<< "Schive , Mocz , deterministic , levkov, delta, theta, 1Sol, NFW" <<endl;
+    cout<< "Schive , Mocz , deterministic , levkov, delta, theta, 1Sol, NFW, eddington_nfw, eddington_nfw_levkov" <<endl;
   }
   if(mpirun_flag==true){
     MPI_Finalize();
