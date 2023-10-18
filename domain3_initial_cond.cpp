@@ -1,7 +1,9 @@
 #include "uldm_mpi_2field.h"
 #include <boost/multi_array.hpp>
 #include <cmath>
+#include <cstddef>
 #include <string>
+#include <random>
 #include "eddington.h"
 // Initial conditions functions
 // Initial condition with waves, test purposes
@@ -331,7 +333,9 @@ void domain3::set_theta(multi_array<double, 1> Nparts){
   }
 }
 
-void domain3::setEddington(Eddington *eddington, int numpoints, double radmin, double radmax, int fieldid, double ratiomass){
+void domain3::setEddington(Eddington *eddington, int numpoints, double radmin, double radmax, int fieldid, double ratiomass, bool simplify_k){
+  // If simplify_k is true, then it inserts the random phases as gaussians on |k|; if false, then it inserts the random phases
+  // in every \vec{k} point
   if (eddington->analytic_Eddington == false){ // If the profile does not have analytic formulas for f(E), compute it numerically
     eddington->compute_d2rho_dpsi2_arr(numpoints, radmin, radmax);
     eddington->compute_fE_arr();
@@ -354,17 +358,42 @@ void domain3::setEddington(Eddington *eddington, int numpoints, double radmin, d
     for(int i = 0; i < profile->params.size(); i++){
       info_initial_cond<<" "<<profile->params_name[i]<<" "<<profile->params[i];
     } 
-    info_initial_cond<<endl;
+    info_initial_cond<<" "<< simplify_k <<endl;
   cout<< "kmax global for Eddington initial conditions: "<< kmax_global<<" "<< sqrt(2*profile->Psi(radmin)) * Length/(2*M_PI)   <<endl;
   }
-  vector<double> phases_send;
-  // multi_array<double, 3> phases(extents[2*kmax_global][2*kmax_global][2*kmax_global]);
-  // Phases should depend only on velocity, so initialize them once here, on world rank 0
-  if (world_rank ==0){
-    for(int k=0; k<2*kmax_global; k++)
-      for(int j=0; j<2*kmax_global; j++)
-        for(int i=0; i<2*kmax_global; i++)
-          phases_send.pushback(fRand(0, 2*M_PI)); // Phases should depend only on velocities
+  vector<double> phases_send(int(pow(2*kmax_global,3)), 0);
+  random_device rd;
+  default_random_engine generator(rd()); // To generate gaussian distributed numbers, rd should initialize a random seed
+
+  if (simplify_k==false){ 
+    // multi_array<double, 3> phases(extents[2*kmax_global][2*kmax_global][2*kmax_global]);
+    // Phases should depend only on velocity, so initialize them once here, on world rank 0
+    if (world_rank ==0){
+      for(size_t k=0; k<2*kmax_global; k++)
+        for(size_t j=0; j<2*kmax_global; j++)
+          for(size_t i=0; i<2*kmax_global; i++)
+            phases_send[i + j*(2*kmax_global) + k*(4*kmax_global*kmax_global)] = fRand(0, 2*M_PI); // Phases should depend only on velocities
+    }
+    // multi_array<double, 3> phases(extents[2*kmax_global][2*kmax_global][2*kmax_global]);
+    // #pragma omp parallel for collapse(3)
+    // for(int k=0; k<2*kmax_global; k++)
+    //   for(int j=0; j<2*kmax_global; j++)
+    //     for(int i=0; i<2*kmax_global; i++)
+    //       phases[i][j][k] = phases_send[i+2*kmax_global*j + pow(2*kmax_global,2)*k]; // Phases should depend only on velocities
+    // #pragma omp barrier
+    // phases_send.clear();
+    // cout<<"Phases check "<< phases[1][0][0] << " "<< phases[1][1][1] << " world rank " << world_rank<<endl;
+  }
+  else if (simplify_k==true){ 
+    // Phases should depend only on velocity, so initialize them once here, on world rank 0
+    if (world_rank ==0){
+      for(int i=0; i<2; i++) // real and imaginary part
+        for(int j=0; j<kmax_global; j++){
+          normal_distribution<double> distribution(0, sqrt(2*M_PI*j*j + 1E-10)); // Avoid zero standard deviation
+          double draw = distribution(generator);
+          phases_send[j + i*kmax_global] =draw; // Phases should depend only on velocities
+        }
+    }
   }
   // send to other nodes, 4th entry should be the node you send to, 5th entry is a tag (to be shared between receiver and transmitter)
   if(world_rank==0 && mpi_bool==true){
@@ -376,23 +405,16 @@ void domain3::setEddington(Eddington *eddington, int numpoints, double radmin, d
   if(world_rank!=0 && mpi_bool==true){
     MPI_Recv(&phases_send.front(),phases_send.size(), MPI_DOUBLE, 0, 100+world_rank, MPI_COMM_WORLD,MPI_STATUS_IGNORE);
   }
-  multi_array<double, 3> phases(extents[2*kmax_global][2*kmax_global][2*kmax_global]);
-  #pragma omp parallel for collapse(3)
-  for(int k=0; k<2*kmax_global; k++)
-    for(int j=0; j<2*kmax_global; j++)
-      for(int i=0; i<2*kmax_global; i++)
-        phases[i][j][k] = phases_send[i+2*kmax_global*j + pow(2*kmax_global,2)*k]; // Phases should depend only on velocities
-  #pragma omp barrier
-  phases_send.clear();
-  cout<<"Phases check "<< phases[1][0][0] << " "<< phases[1][1][1] << " world rank " << world_rank<<endl;
-  
+  cout<<"Phases check "<< phases_send[1] << " "<< phases_send[4] << " world rank " << world_rank<<endl;
+
   int check_index = 0;
+  int time_comp_initial = time(NULL);
   #pragma omp parallel for collapse(3)
   for(int i=0; i<PointsS; i++){
     for(int j=0; j<PointsS; j++)
       for(int k=nghost; k<PointsSS+nghost; k++){
         // I want this to understand at which point of the initialization I am in
-        if(j==0 and k==0) {
+        if(j==0 and k==nghost) {
           cout<< "In initial condition, arrived at point in x dimension "<< check_index << " for world rank " <<world_rank<<endl;
           check_index++;
         }
@@ -402,23 +424,40 @@ void domain3::setEddington(Eddington *eddington, int numpoints, double radmin, d
         int kmax = min(int(PointsS/2),int (ceil(sqrt(2*profile->Psi(distance)) * Length/(2*M_PI) ) ));
         double psi_point_real = 0;
         double psi_point_im = 0;
-        for(int v1=-kmax; v1<kmax; v1++){
-          for(int v2=-kmax; v2<kmax; v2++)
-            for(int v3=-kmax; v3<kmax; v3++){
-              double vx = Length/PointsS*(v1*i + v2*j + v3*(k+extrak))*ratiomass; // r*k\cdot x, taking into account the ratio_mass r
-              double vv = sqrt(v1*v1 + v2*v2 + v3*v3); // |k_f|
-              double vtilde = 2*M_PI/Length *vv;
-              double E = profile->Psi(distance) - pow(vtilde,2)/2; // You have to ensure E > 0, for bound system
-              if (E >0){
-                double fe = eddington->fE_func(E);
-                double psi_point = pow(2*M_PI/Length, 3./2)*sqrt(fe);
-                psi_point_real += psi_point*cos(phases[v1+kmax_global][v2+kmax_global][v3+kmax_global] + 2*M_PI/Length *vx);
-                psi_point_im += psi_point*sin(phases[v1+kmax_global][v2+kmax_global][v3+kmax_global] + 2*M_PI/Length *vx);
+        if(simplify_k == false){
+          for(int v1=-kmax; v1<kmax; v1++){
+            for(int v2=-kmax; v2<kmax; v2++)
+              for(int v3=-kmax; v3<kmax; v3++){
+                double vx = Length/PointsS*(v1*i + v2*j + v3*(k+extrak))*ratiomass; // r*k\cdot x, taking into account the ratio_mass r
+                double vv = sqrt(v1*v1 + v2*v2 + v3*v3); // |k_f|
+                double vtilde = 2*M_PI/Length *vv;
+                double E = profile->Psi(distance) - pow(vtilde,2)/2; // You have to ensure E > 0, for bound system
+                if (E >0){
+                  double fe = eddington->fE_func(E);
+                  double psi_point = pow(2*M_PI/Length, 3./2)*sqrt(fe);
+                  size_t index = size_t(v1+kmax_global) + size_t(2*kmax_global*size_t(v2+kmax_global))+ pow(2*size_t(kmax_global),2)*size_t(v3+kmax_global);
+                  psi_point_real += psi_point*cos(phases_send[index] + 2*M_PI/Length *vx);
+                  psi_point_im += psi_point*sin(phases_send[index] + 2*M_PI/Length *vx);
+                }
               }
+          }
+        }
+        else if (simplify_k ==true ){
+          for(int vv=0; vv<kmax; vv++){
+            double vtilde = 2*M_PI/Length *vv;
+            double E = profile->Psi(distance) - pow(vtilde,2)/2; // You have to ensure E > 0, for bound system
+            if (E >0){
+              double fe = eddington->fE_func(E);
+              double psi_point = pow(2*M_PI/Length, 3./2)*sqrt(fe);
+              psi_point_real += psi_point*phases_send[vv];
+              psi_point_im += psi_point*phases_send[vv + kmax_global];
             }
+          }
         }
         psi[2*fieldid][i][j][k] +=   psi_point_real;
         psi[2*fieldid+1][i][j][k] += psi_point_im;
       }
   }
+  #pragma omp barrier
+  cout<<"Computation time to initialize the field "<< time(NULL) - time_comp_initial << endl;
 }

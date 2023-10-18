@@ -222,7 +222,7 @@ int main(int argc, char** argv){
   }
   
   else if (initial_cond == "eddington_nfw" ) {// NFW Eddington initial conditions
-    if (argc > 14){
+    if (argc > 15){
       int field_id = atoi(argv[11]); // The field where to put the Eddington generated NFW profile
       ratio_mass[field_id] = atof(argv[12]); // If nfields=1, this should be set to one
       string outputname;
@@ -234,8 +234,16 @@ int main(int argc, char** argv){
         + "_";
       double rs = atof(argv[13]); // NFW scale radius
       double rhos = atof(argv[14]); // NFW normalization
-      // double rmax = atof(argv[15]); // NFW max radius
       outputname = outputname + "rs_" + to_string(rs) + "_rhos_" + to_string(rhos)+ "_";
+      
+      string simplify_k = argv[15]; // This will be the bool for the simplify_k in SetEddington function
+      bool boolk;
+      if (simplify_k == "true"){ 
+        boolk = true;
+        outputname = outputname + "simplify_ksum_";
+      }
+      else boolk = false;
+      
       domain3 D3(Nx,Nz,Length, num_fields,numsteps,dt,outputnumb, outputnumb_profile, outputname, Pointsmax, world_rank,world_size,nghost, mpirun_flag);
       D3.set_ratio_masses(ratio_mass);
       D3.set_grid(false);
@@ -245,15 +253,15 @@ int main(int argc, char** argv){
       if(start_from_backup=="true")
         D3.initial_cond_from_backup();
       else
-        D3.setEddington(&eddington, 500, Length/Nx, Length, field_id, ratio_mass[field_id]); // The actual max radius is between Length and Length/2
+        D3.setEddington(&eddington, 500, Length/Nx, Length, field_id, ratio_mass[field_id],boolk); // The actual max radius is between Length and Length/2
       D3.set_backup_flag(backup_bool);
       D3.solveConvDif();
     }
     else if (world_rank==0)
-      cout<<"You need 14 arguments to pass to the code: mpi_bool, Nx, Length, numsteps, dt, num_fields, output_profile, output_profile_radial, initial_cond, start_from_backup string, field_id, ratio_mass, rs, rhos" << endl;
+      cout<<"You need 15 arguments to pass to the code: mpi_bool, Nx, Length, numsteps, dt, num_fields, output_profile, output_profile_radial, initial_cond, start_from_backup string, field_id, ratio_mass, rs, rhos, simplify_ksum" << endl;
   }
   else if (initial_cond == "eddington_plummer" ) {// Plummer Eddington initial conditions
-    if (argc > 14){
+    if (argc > 15){
       int field_id = atoi(argv[11]); // The field where to put the Eddington generated NFW profile
       ratio_mass[field_id] = atof(argv[12]); // If nfields=1, this should be set to one
       string outputname;
@@ -266,6 +274,15 @@ int main(int argc, char** argv){
       double rs = atof(argv[13]); // Plummer scale radius
       double m0 = atof(argv[14]); // Plummer mass normalization
       outputname = outputname + "rs_" + to_string(rs) + "_M0_" + to_string(m0)+ "_";
+      
+      string simplify_k = argv[15]; // This will be the bool for the simplify_k in SetEddington function
+      bool boolk;
+      if (simplify_k == "true"){ 
+        boolk = true;
+        outputname = outputname + "simplify_ksum_";
+      }
+      else boolk = false;
+      
       domain3 D3(Nx,Nz,Length, num_fields,numsteps,dt,outputnumb, outputnumb_profile, outputname, Pointsmax, world_rank,world_size,nghost, mpirun_flag);
       D3.set_ratio_masses(ratio_mass);
       D3.set_grid(false);
@@ -275,15 +292,15 @@ int main(int argc, char** argv){
       if(start_from_backup=="true")
         D3.initial_cond_from_backup();
       else
-        D3.setEddington(&eddington, 500, Length/Nx, Length, field_id, ratio_mass[field_id]); // The actual max radius is between Length and Length/2
+        D3.setEddington(&eddington, 500, Length/Nx, Length, field_id, ratio_mass[field_id], boolk); // The actual max radius is between Length and Length/2
       D3.set_backup_flag(backup_bool);
       D3.solveConvDif();
     }
     else if (world_rank==0)
-      cout<<"You need 14 arguments to pass to the code: mpi_bool, Nx, Length, numsteps, dt, num_fields, output_profile, output_profile_radial, initial_cond, start_from_backup string, field_id, ratio_mass, rs, M0" << endl;
+      cout<<"You need 15 arguments to pass to the code: mpi_bool, Nx, Length, numsteps, dt, num_fields, output_profile, output_profile_radial, initial_cond, start_from_backup string, field_id, ratio_mass, rs, M0, simplify_ksum" << endl;
   }
   else if (initial_cond == "eddington_nfw_levkov" ) {// NFW Eddington initial conditions for field 1 plus levkov for field 0
-    if (argc > 14){
+    if (argc > 15){
       double Nparts = atof(argv[11]); // Levkov initial condition parameter
       ratio_mass[1] = atof(argv[12]); // If nfields=1, this should be set to one
       string outputname;
@@ -297,6 +314,15 @@ int main(int argc, char** argv){
       double rhos = atof(argv[14]); // NFW normalization
       // double rmax = atof(argv[15]); // NFW max radius
       outputname = outputname + "rs_" + to_string(rs) + "_rhos_" + to_string(rhos)+ "_";
+      
+      string simplify_k = argv[15]; // This will be the bool for the simplify_k in SetEddington function
+      bool boolk;
+      if (simplify_k == "true"){ 
+        boolk = true;
+        outputname = outputname + "simplify_ksum_";
+      }
+      else boolk = false;
+      
       domain3 D3(Nx,Nz,Length, num_fields,numsteps,dt,outputnumb, outputnumb_profile, outputname, Pointsmax, world_rank,world_size,nghost, mpirun_flag);
       D3.set_ratio_masses(ratio_mass);
       D3.set_grid(false);
@@ -310,14 +336,14 @@ int main(int argc, char** argv){
       if(start_from_backup=="true")
         D3.initial_cond_from_backup();
       else{
-        D3.setEddington(&eddington, 500, Length/Nx, Length, 1, ratio_mass[1]); // The actual max radius is between Length and Length/2
+        D3.setEddington(&eddington, 500, Length/Nx, Length, 1, ratio_mass[1],boolk); // The actual max radius is between Length and Length/2
         D3.set_waves_Levkov(Nparts_arr);
       }
       D3.set_backup_flag(backup_bool);
       D3.solveConvDif();
     }
     else if (world_rank==0)
-      cout<<"You need 14 arguments to pass to the code: mpi_bool, Nx, Length, numsteps, dt, num_fields, output_profile, output_profile_radial, initial_cond, start_from_backup string, Npart, ratio_mass, rs, rhos" << endl;
+      cout<<"You need 15 arguments to pass to the code: mpi_bool, Nx, Length, numsteps, dt, num_fields, output_profile, output_profile_radial, initial_cond, start_from_backup string, Npart, ratio_mass, rs, rhos, simplify_ksum" << endl;
   }
   else if (initial_cond == "Schive" ) {// Schive initial conditions
     if (argc > 13){

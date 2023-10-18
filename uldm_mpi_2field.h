@@ -312,7 +312,7 @@ class domain3{
       void set_delta(multi_array<double, 1> Npart);
       // Sets Heaviside in Fourier space initial conditions
       void set_theta(multi_array<double, 1> Npart);
-      void setEddington(Eddington *eddington, int numpoints, double radmin, double radmax, int fieldid, double ratiomass);
+      void setEddington(Eddington *eddington, int numpoints, double radmin, double radmax, int fieldid, double ratiomass, bool simplify_k);
 
        // functions below not adapted for MPI yet
  /*

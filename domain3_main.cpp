@@ -313,7 +313,7 @@ void domain3::solveConvDif(){
     for(int i=0;i<nfields;i++){
       etot_current += e_kin_full1(i) + full_energy_pot(i);
     }
-    cout<<"E tot current "<<etot_current<<endl;
+    if (world_rank==0) cout<<"E tot current "<<etot_current<<endl;
     // Criterium for dropping by half the time step if energy is not conserved well enough
     if(abs(etot_current-E_tot_initial)/abs(etot_current + E_tot_initial) > 0.001 ){
       dt = dt/2;
