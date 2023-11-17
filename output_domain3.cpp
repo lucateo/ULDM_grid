@@ -9,30 +9,32 @@ void domain3::openfiles(){ // It opens all the output files, and it inserts an i
     timesfile_profile.open(outputname+"times_profile.txt");       timesfile_profile<<"{";   timesfile_profile.setf(ios_base::fixed);
     profilefile.open(outputname+"profiles.txt");  profilefile<<"{"; profilefile.setf(ios_base::fixed);
     phase_slice.open(outputname+"phase_slice.txt");  phase_slice<<"{"; phase_slice.setf(ios_base::fixed);
-  }
-  // This you have to open on all nodes, if mpi_bool==true, append the world_rank to the file name
-  if(mpi_bool==true){
-    profile_sliced.open(outputname+"profile_sliced_node"+to_string(world_rank)+".txt");profile_sliced<<"{"; profile_sliced.setf(ios_base::fixed);
-  }
-  else {
     profile_sliced.open(outputname+"profile_sliced.txt");profile_sliced<<"{"; profile_sliced.setf(ios_base::fixed);
   }
+  // This you have to open on all nodes, if mpi_bool==true, append the world_rank to the file name
+  // if(mpi_bool==true){
+  //   profile_sliced.open(outputname+"profile_sliced_node"+to_string(world_rank)+".txt");profile_sliced<<"{"; profile_sliced.setf(ios_base::fixed);
+  // }
+  // else {
+  //   profile_sliced.open(outputname+"profile_sliced.txt");profile_sliced<<"{"; profile_sliced.setf(ios_base::fixed);
+  // }
 }
 
 void domain3::openfiles_backup(){ //It opens all the output files in append mode, with no initial insertion of { (for backup mode)
   if(world_rank==0){  
-  timesfile_grid.open(outputname+"times_grid.txt", ios_base::app); timesfile_grid.setf(ios_base::fixed);
-  timesfile_profile.open(outputname+"times_profile.txt", ios_base::app);  timesfile_profile.setf(ios_base::fixed);
-  profilefile.open(outputname+"profiles.txt", ios_base::app); profilefile.setf(ios_base::fixed);
-  phase_slice.open(outputname+"phase_slice.txt", ios_base::app);   phase_slice.setf(ios_base::fixed);
-  }
-  // This you have to open on all nodes, if mpi_bool==true, append the world_rank to the file name
-  if(mpi_bool==true){
-    profile_sliced.open(outputname+"profile_sliced_node"+to_string(world_rank)+".txt", ios_base::app);profile_sliced.setf(ios_base::fixed);
-  }
-  else {
+    timesfile_grid.open(outputname+"times_grid.txt", ios_base::app); timesfile_grid.setf(ios_base::fixed);
+    timesfile_profile.open(outputname+"times_profile.txt", ios_base::app);  timesfile_profile.setf(ios_base::fixed);
+    profilefile.open(outputname+"profiles.txt", ios_base::app); profilefile.setf(ios_base::fixed);
+    phase_slice.open(outputname+"phase_slice.txt", ios_base::app);   phase_slice.setf(ios_base::fixed);
     profile_sliced.open(outputname+"profile_sliced.txt", ios_base::app);profile_sliced.setf(ios_base::fixed);
   }
+  // This you have to open on all nodes, if mpi_bool==true, append the world_rank to the file name
+  // if(mpi_bool==true){
+  //   profile_sliced.open(outputname+"profile_sliced_node"+to_string(world_rank)+".txt", ios_base::app);profile_sliced.setf(ios_base::fixed);
+  // }
+  // else {
+  //   profile_sliced.open(outputname+"profile_sliced.txt", ios_base::app);profile_sliced.setf(ios_base::fixed);
+  // }
 }
 
 // Considering I am implementing the possbility to use backups, this function closes files
@@ -99,16 +101,33 @@ void domain3::outputfullPsi(ofstream& fileout){// Outputs the full 3D psi, every
   fileout.close();
 }
 void domain3::outputSlicedDensity(ofstream& fileout){ // Outputs the projected 2D density profile
-  multi_array<double,3> density_sliced(extents[nfields][PointsS][PointsS]);
+  // multi_array<double,3> density_sliced(extents[nfields][PointsS][PointsS]);
+  vector<double> density_sliced(nfields*PointsS*PointsS,0);
   #pragma omp parallel for collapse(4)
   for(int l = 0; l < nfields; l++)
     for(size_t i=0;i<PointsS;i++)
       for(size_t j=0; j<PointsS;j++)
         for(size_t k=nghost; k<PointsSS+nghost;k++){
-        density_sliced[l][i][j]= density_sliced[l][i][j] + pow(psi[2*l][i][j][k],2)+pow(psi[2*l+1][i][j][k],2);
+        density_sliced[j+i*PointsS+l*PointsS*PointsS]= density_sliced[j+i*PointsS+l*PointsS*PointsS] 
+                                                     + pow(psi[2*l][i][j][k],2)+pow(psi[2*l+1][i][j][k],2);
         }
   #pragma omp barrier
-  print3(density_sliced,fileout);
+  // send to node 0, 4th entry should be the node you send to, 5th entry is a tag (to be shared between receiver and transmitter)
+  if(world_rank!=0 && mpi_bool==true){
+      MPI_Send(&density_sliced.front(), density_sliced.size(), MPI_DOUBLE, world_rank, 500+world_rank, MPI_COMM_WORLD);
+  }
+  // receive from other nodes, 4th entry should be the node you receive from, 5th entry is a tag (to be shared between receiver and transmitter)
+  if(world_rank==0 && mpi_bool==true){
+    vector<double> density_sliced_rec(nfields*PointsS*PointsS,0); // The receiving vector
+    for(int i=1;i<world_rank;i++){
+      MPI_Recv(&density_sliced_rec.front(),density_sliced_rec.size(), MPI_DOUBLE, 0, 500+i, MPI_COMM_WORLD,MPI_STATUS_IGNORE);
+      transform(density_sliced.begin(), density_sliced.end(), density_sliced_rec.begin(), density_sliced.begin(), std::plus<int>());
+    }
+  }
+  if(world_rank==0){
+    vector<int> dims = {nfields, int(PointsS), int(PointsS)};
+    print3_1dvector(density_sliced, dims, fileout);
+  }
 }
 
 void domain3::outputPhaseSlice(ofstream& fileout){ // Outputs a 2D slice of the phase
@@ -237,10 +256,10 @@ void domain3::snapshot(double stepCurrent){//Outputs the full density profile; i
   if(world_rank==0){
     timesfile_grid<<","<<Etot<<"}\n"<<","<<flush;
     cout<<"Output animation results"<<endl;
+    cout.setf(ios_base::fixed);
+    outputSlicedDensity(profile_sliced); // Output of both fields
+    profile_sliced<<"\n"<<","<<flush;
   }
-  cout.setf(ios_base::fixed);
-  outputSlicedDensity(profile_sliced); // Output of both fields
-  profile_sliced<<"\n"<<","<<flush;
   // } //if it's not the last timeshot put a comma { , , , , }
 /*            if(Grid3D == true){
       ofstream grid;

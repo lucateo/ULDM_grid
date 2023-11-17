@@ -91,13 +91,13 @@ double interpolant(double x, vector<double> & xarr, vector<double> & yarr){
   return result;
 }
 
-void export_for_plot(string name, vector<double> xarr, vector<double> yarr){
+void export_for_plot(string name, vector<double> & xarr, vector<double> & yarr){
   int Nx = xarr.size();
   ofstream file(name);
   for(int i = 0; i < Nx-1;i++) {
-    file << xarr[i] << " " << yarr[i] << "\n";
+    file << xarr[i] << "\t" << yarr[i] << "\n";
   }
-  file << xarr[Nx-1] << " " << yarr[Nx-1];
+  file << xarr[Nx-1] << "\t" << yarr[Nx-1];
   file.close();
 }
 

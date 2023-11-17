@@ -135,6 +135,29 @@ void print4_cpp(multi_array<T,4> & v1,  U & filename, int nghost){
   }
 }
 
+// Prints a 3 dimensional array, with dimensions specified in dims, stored in a 1d vector as i+j*dims[0] + k*dims[0]*dims[1] 
+void inline print3_1dvector(vector<double> &v1, vector<int> &dims, ofstream &filename){
+  int ndims = dims.size(); // Number of dimensions, which should be 3
+  filename<<"{";
+  for(int i = 0;i < dims[0]; i++){
+    filename<<"{";
+    for(int j = 0;j < dims[1]; j++){
+      filename<<"{";
+      for(int k = 0;k < dims[2]; k++){
+        filename<<v1[k +j*dims[2] + i * dims[2]* dims[1]];
+        if(k!=(dims[2]-1)){filename<<",";}
+      }
+      filename<<"}";
+      if(j!=(dims[1]-1)){filename<<",";}
+    }
+    filename<<"}";
+    if(i!=(dims[0]-1)){filename<<",";}
+  }
+  filename<< " } ";
+} 
+
+
+
 // No ghosts in the z-direction on these grids
 class Fourier{
   size_t Nx; // Number of grid points in linear dimension
@@ -169,6 +192,10 @@ class Fourier{
     //input psi on the array for fftw, note the shift due to the ghost cells
     // whichPsi should be 0 or 1 depending on which field
     void inputpsi(multi_array<double,4> &psi, int nghost, int whichPsi);
+    // Input a 1D array already ready to be put in rin of the Fourier
+    void input_arr(multi_array<double,1> &arr1d, int whichfield, int which_coordinate);
+    // Finds the phase given velocity by passing in Fourier space
+    void kfactor_vel(double Length,double r, int which_coord);
     //function for putting -k^2 factor; more precisely, psi->exp(-i c_alpha dt k^2/2 ) psi
     void kfactorpsi(double tstep, double Length, double calpha, double r);
     // Put on psi the result of Fourier transforms
@@ -267,7 +294,7 @@ class domain3{
       void set_backup_flag(bool bool_backup);//If false, no backup
       void set_ratio_masses(multi_array<double,1> ratio_mass);//Sets the ratio between the masses of the ULDM wrt field 0
       virtual void makestep(double stepCurrent, double tstep);
-      void solveConvDif();
+      virtual void solveConvDif();
       // Notice that you should call the backup from a run which uses the SAME number of cores in mpi processes
       void initial_cond_from_backup(); //Sets the initial conditions from the backup files, if backup_flag is true
 
@@ -297,22 +324,23 @@ class domain3{
       
       //////////////// Initial conditions functions, defined in domain3_initial_cond.cpp ////////////////
       // Initial condition with waves, test purposes
-      void initial_waves();
+      void initial_waves(int whichF);
       // Sets one soliton in the center of the box
       void setInitialSoliton_1(double r_c, int whichPsi);
       // sets many solitons as initial condition, with random core radius whose centers are confined in a box of length length_lim
-      void setManySolitons_random_radius(int num_Sol, double min_radius, double max_radius, double length_lim);
+      void setManySolitons_random_radius(int num_Sol, double min_radius, double max_radius, double length_lim, int whichPsi);
       // sets many solitons as initial condition, with same core radius whose centers are confined in a box of length length_lim
-      void setManySolitons_same_radius(int num_Sol, double r_c, double length_lim);
+      void setManySolitons_same_radius(int num_Sol, double r_c, double length_lim, int whichPsi);
       // Deterministic initial condition
-      void setManySolitons_deterministic(double r_c, int num_sol);
+      void setManySolitons_deterministic(double r_c, int num_sol, int whichPsi);
       // Levkov like initial conditions
-      void set_waves_Levkov(multi_array<double, 1> Npart);
+      void set_waves_Levkov(double Npart, int whichPsi);
       // Sets delta in Fourier space initial conditions
-      void set_delta(multi_array<double, 1> Npart);
+      void set_delta(double Npart, int whichPsi);
       // Sets Heaviside in Fourier space initial conditions
-      void set_theta(multi_array<double, 1> Npart);
-      void setEddington(Eddington *eddington, int numpoints, double radmin, double radmax, int fieldid, double ratiomass, bool simplify_k);
+      void set_theta(double Npart, int whichPsi);
+      void set_initial_from_file(string filename_in, string filename_vel); // Use a file with density and velocity at each grid point to be implemented in the grid
+      void setEddington(Eddington *eddington, int numpoints, double radmin, double radmax, int fieldid, double ratiomass, int num_k, bool simplify_k);
 
        // functions below not adapted for MPI yet
  /*

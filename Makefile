@@ -37,6 +37,8 @@ CC=mpicxx
 SOURCES=domain3_main.cpp fourier.cpp utilities.cpp domain3_initial_cond.cpp output_domain3.cpp
 # LIBS=-fopenmp -lfftw3 -lfftw3f_threads -lfftw3f -lm
 LIBS=-std=c++0x -O3 -march=native -fopenmp -L/opt/gridware/depots/e2b91392/el7/pkg/libs/fftw3_double/3.3.4/gcc-5.5.0+openmpi-1.10.7/lib -I/opt/gridware/depots/e2b91392/el7/pkg/libs/fftw3_double/3.3.4/gcc-5.5.0+openmpi-1.10.7/include -lfftw3_omp -lfftw3_mpi -lfftw3 -lm -lpthread
-all: main_sim_mpi
-main_sim_mpi: main_sim_mpi_2field.cpp $(SOURCES) uldm_mpi_2field.h uldm_sim_nfw.h eddington.h
+all: main_sim_mpi test_sim
+main_sim_mpi: main_sim_mpi_2field.cpp $(SOURCES) uldm_mpi_2field.h uldm_sim_nfw.h eddington.h uldm_stars.h
+	$(CC) -o $@ $< $(SOURCES) $(LIBS)
+test_sim: Test_code.cpp
 	$(CC) -o $@ $< $(SOURCES) $(LIBS)

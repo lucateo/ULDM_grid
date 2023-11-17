@@ -264,6 +264,7 @@ void domain3::makestep(double stepCurrent, double tstep){ // makes a step in a d
 void domain3::solveConvDif(){
   int beginning=time(NULL);
   int count_energy=0; // count how many times you decrease the time step before changing to E_tot_running
+  int switch_en_count = 0; // Keeps track on how many times you switch energy
   if (start_from_backup == true)
     openfiles_backup();
   else
@@ -313,19 +314,21 @@ void domain3::solveConvDif(){
     for(int i=0;i<nfields;i++){
       etot_current += e_kin_full1(i) + full_energy_pot(i);
     }
-    if (world_rank==0) cout<<"E tot current "<<etot_current<<endl;
+    double compare_energy = abs(etot_current-E_tot_initial)/abs(etot_current + E_tot_initial);
+    if (world_rank==0) cout<<"E tot current "<<etot_current << " E tot initial " << E_tot_initial << " compare E ratio "<<compare_energy <<endl;
     // Criterium for dropping by half the time step if energy is not conserved well enough
-    if(abs(etot_current-E_tot_initial)/abs(etot_current + E_tot_initial) > 0.001 ){
+    if(compare_energy > 0.001 ){
       dt = dt/2;
       E_tot_running = etot_current;
       count_energy++;
-      if (abs(etot_current-E_tot_running)/abs(etot_current + E_tot_running) < 0.0001 && count_energy > 2){
+      if (abs(etot_current-E_tot_running)/abs(etot_current + E_tot_running) < 0.00001 && count_energy > 2 + switch_en_count){
         E_tot_initial = E_tot_running;
         count_energy = 0;
-        cout<<"Switch energy" <<endl;
+        if (world_rank==0) cout<<"Switch energy "<<switch_en_count <<" ---------------------------------------------------" <<endl;
+        switch_en_count++;
       }
     }
-    else if(abs(etot_current-E_tot_initial)/abs(etot_current +E_tot_initial)<0.0001){
+    else if(compare_energy<0.0001){
       dt = dt*1.2; // Less aggressive when increasing the time step, rather than when decreasing it
     }
     if(stepCurrent%numoutputs==0 || stepCurrent==numsteps) {
@@ -333,17 +336,17 @@ void domain3::solveConvDif(){
         sortGhosts(); // Should be called, to do derivatives in real space
       }
       snapshot(stepCurrent); 
-      exportValues(); // for backup purposes
-      ofstream phi_final;
-      outputfullPhi(phi_final);
-      ofstream psi_final;
-      outputfullPsi(psi_final);
     }
     if(stepCurrent%numoutputs_profile==0 || stepCurrent==numsteps) {
       if (mpi_bool==true){ 
         sortGhosts(); // Should be called, to do derivatives in real space
       }
       snapshot_profile(stepCurrent);
+      exportValues(); // for backup purposes
+      ofstream phi_final;
+      outputfullPhi(phi_final);
+      ofstream psi_final;
+      outputfullPsi(psi_final);
     }
   }
   closefiles();

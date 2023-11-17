@@ -7,16 +7,14 @@
 #include "eddington.h"
 // Initial conditions functions
 // Initial condition with waves, test purposes
-void domain3::initial_waves(){
+void domain3::initial_waves(int whichF){
   #pragma omp parallel for collapse(3)
   for(int i=0;i<PointsS;i++)
     for(int j=0;j<PointsS;j++)
       for(int k=nghost;k<PointsSS+nghost;k++){
         int kreal=k+world_rank*PointsSS;
-        psi[0][i][j][k]+=sin(i/20.)*cos(kreal/20.);
-        psi[1][i][j][k]+=sin(kreal/20.)*cos((kreal+i)/20.);
-        // psi[2][i][j][k]=sin(i/20.)*cos(kreal/20.);
-        // psi[3][i][j][k]=sin(kreal/20.)*cos((kreal+i)/20.);
+        psi[2*whichF][i][j][k]+=sin(i/20.)*cos(kreal/20.);
+        psi[2*whichF +1][i][j][k]+=sin(kreal/20.)*cos((kreal+i)/20.);
       }
 }
 
@@ -40,17 +38,17 @@ void domain3::initial_waves(){
 //         #pragma omp barrier
 //     }
 
-void domain3::setInitialSoliton_1(double r_c, int whichpsi){ // sets 1 soliton in the center of the grid as initial condition, for field 0
+void domain3::setInitialSoliton_1(double r_c, int whichpsi){ // sets 1 soliton in the center of the grid as initial condition, for field whichpsi
   int center = (int) PointsS / 2; // The center of the grid, more or less
-  int extrak= PointsSS*world_rank -nghost; // Take into account the node where you are. If mpi==false, world rank is initialized to 0
-  double r = ratio_mass[whichpsi]; //
+  int extrak= PointsSS*world_rank -nghost; // Take into account the node where you are. If mpi==false, world rank and nghost are initialized to 0
+  double ratio = ratio_mass[whichpsi]; //
   #pragma omp parallel for collapse(3) //not sure whether this is parallelizable
     for(int i=0;i<PointsS;i++){
       for(int j=0; j<PointsS;j++){
         for(int k=nghost; k<PointsSS+nghost;k++){
           // Distance from the center of the soliton
           double radius = deltaX * sqrt( pow( abs(i - center),2) + pow( abs(j - center),2) + pow( abs(k + extrak - center),2));
-          psi[2*whichpsi][i][j][k] += psi_soliton(r_c, radius, r);
+          psi[2*whichpsi][i][j][k] += psi_soliton(r_c, radius, ratio);
           // psi[2*whichpsi+1][i][j][k] = 0; // Set the imaginary part to zero
         }
       }
@@ -58,33 +56,15 @@ void domain3::setInitialSoliton_1(double r_c, int whichpsi){ // sets 1 soliton i
   #pragma omp barrier
 }
 
-// void domain3::setInitialSoliton_2(double r_c1, double r_c2, double distance){ // sets 2 solitons as initial condition, for testing purposes
-//       int center = (int) PointsS / 2; // The center of the grid, more or less
-//       int center1 = center + (int) round(distance/(2*deltaX)); // coordinates of first soliton in x axis
-//       int center2 = center - (int) round(distance/(2*deltaX)); // coordinates of second soliton in x axis
-//       #pragma omp parallel for collapse(3) //not sure whether this is parallelizable
-//         for(int i=0;i<PointsS;i++){
-//             for(int j=0; j<PointsS;j++){
-//                 for(int k=0; k<PointsS;k++){
-//                   // Distance from the center of the soliton, located at the center of the grid but displaced in x axis by distance/2
-//                   double radius1 = deltaX * sqrt( pow( i-center1,2) + pow( j-center,2) + pow( k -center,2));
-//                   double radius2 = deltaX * sqrt( pow( i-center2,2) + pow( j-center,2) + pow( k-center,2));
-//                   psi[0][i][j][k] = psi_soliton(r_c1, radius1) + psi_soliton(r_c2, radius2);
-//                   psi[1][i][j][k] = 0; // Set the imaginary part to zero
-//                   }
-//             }
-//         }
-//         #pragma omp barrier
-//     }
 
 // sets many solitons as initial condition, with random core radius whose centers are confined in a box of length length_lim
-// For now, implemented only for field one
-void domain3::setManySolitons_random_radius(int num_Sol, double min_radius, double max_radius, double length_lim){
+void domain3::setManySolitons_random_radius(int num_Sol, double min_radius, double max_radius, double length_lim, int whichF){
   int extrak= PointsSS*world_rank -nghost; // Take into account the node where you are. If mpi==false, world rank is initialized to 0
   vector<int> random_x(num_Sol,0);
   vector<int> random_y(num_Sol,0);
   vector<int> random_z(num_Sol,0);
   vector<double> r_c(num_Sol,0); // the core radius array
+  double ratio = ratio_mass[whichF];
 
   if(world_rank==0){
     if (first_initial_cond == true){ 
@@ -93,13 +73,13 @@ void domain3::setManySolitons_random_radius(int num_Sol, double min_radius, doub
     }
     else info_initial_cond.open(outputname+"initial_cond_info.txt", ios_base::app);
     info_initial_cond.setf(ios_base::fixed); // First row of the file is num_sol, min_rad, max_rad and length_lim, the other rows are centers of solitons and radii
-    info_initial_cond<<"Schive "<<num_Sol<<" "<<min_radius<<" "<<max_radius << " "<<length_lim  <<endl;
+    info_initial_cond<<"Mocz "<<num_Sol<<" "<<min_radius<<" "<<max_radius << " "<<length_lim << " " << ratio  <<endl;
     for(int i=0;i<num_Sol;i++){//Leave some space with respect to the edge of the grid
       r_c[i] = fRand(min_radius, max_radius);
       random_x[i]= round((Length - length_lim)/(2*deltaX)) + rand()%(int)(PointsS - round((Length - length_lim)/deltaX) );
       random_y[i]= round((Length - length_lim)/(2*deltaX)) + rand()%(int)(PointsS - round((Length - length_lim)/deltaX) );
       random_z[i]= round((Length - length_lim)/(2*deltaX)) + rand()%(int)(PointsS - round((Length - length_lim)/deltaX) );
-      info_initial_cond<<"Schive_soliton_"+to_string(i)<<" " << r_c[i] << " " <<random_x[i]<<" "<<random_y[i]<< " "<<random_z[i]<<endl;
+      info_initial_cond<<"Mocz_soliton_"+to_string(i)<<" " << r_c[i] << " " <<random_x[i]<<" "<<random_y[i]<< " "<<random_z[i]<<endl;
     }
     info_initial_cond.close();
   }
@@ -125,7 +105,7 @@ void domain3::setManySolitons_random_radius(int num_Sol, double min_radius, doub
       for(int k=nghost; k<PointsSS+nghost;k++){
         for(int l=0; l<num_Sol; l++){
           double radius = deltaX * sqrt( pow( i-random_x[l],2) + pow( j-random_y[l],2) + pow( k-random_z[l]+extrak,2));
-          psi[0][i][j][k] += psi_soliton(r_c[l], radius, 1);
+          psi[2*whichF][i][j][k] += psi_soliton(r_c[l], radius, ratio);
         }
         // psi[1][i][j][k] = 0; // Set the imaginary part to zero
       }
@@ -135,13 +115,13 @@ void domain3::setManySolitons_random_radius(int num_Sol, double min_radius, doub
 }
 
 // sets many solitons as initial condition, with same core radius whose centers are confined in a box of length length_lim
-// For now, implemented only for field one
-void domain3::setManySolitons_same_radius(int num_Sol, double r_c, double length_lim){
+void domain3::setManySolitons_same_radius(int num_Sol, double r_c, double length_lim, int whichF){
   #pragma omp barrier
   vector<int> random_x(num_Sol,0);
   vector<int> random_y(num_Sol,0);
   vector<int> random_z(num_Sol,0);
   int extrak= PointsSS*world_rank -nghost; // Take into account the node where you are
+  double ratio = ratio_mass[whichF];
   if(world_rank==0){
     if (first_initial_cond == true){ 
       info_initial_cond.open(outputname+"initial_cond_info.txt");
@@ -149,12 +129,12 @@ void domain3::setManySolitons_same_radius(int num_Sol, double r_c, double length
     }
     else info_initial_cond.open(outputname+"initial_cond_info.txt", ios_base::app);
     info_initial_cond.setf(ios_base::fixed); // First row of the file is num_sol, r_c and length_lim, the other rows are centers of solitons
-    info_initial_cond<<"Mocz "<<num_Sol<<" "<<r_c<<" "<<length_lim <<endl;
+    info_initial_cond<<"Schive "<<num_Sol<<" "<<r_c<<" "<<length_lim << " " << ratio <<endl;
     for(int i=0;i<num_Sol;i++){//Leave some space with respect to the edge of the grid
       random_x[i]= round((Length - length_lim)/(2*deltaX)) + rand()%(int)(PointsS - round((Length - length_lim)/deltaX) );
       random_y[i]= round((Length - length_lim)/(2*deltaX)) + rand()%(int)(PointsS - round((Length - length_lim)/deltaX) );
       random_z[i]= round((Length - length_lim)/(2*deltaX)) + rand()%(int)(PointsS - round((Length - length_lim)/deltaX) );
-      info_initial_cond<<"Mocz_soliton_"+to_string(i)<<" "<<random_x[i]<<" "<<random_y[i]<< " "<<random_z[i]<< endl;
+      info_initial_cond<<"Schive_soliton_"+to_string(i)<<" "<<random_x[i]<<" "<<random_y[i]<< " "<<random_z[i]<< endl;
     }
     info_initial_cond.close();
   }
@@ -178,7 +158,7 @@ void domain3::setManySolitons_same_radius(int num_Sol, double r_c, double length
       for(int k=nghost; k<PointsSS+nghost;k++){
         for(int l=0; l<num_Sol; l++){
           double radius = deltaX * sqrt( pow( i-random_x[l],2) + pow( j-random_y[l],2) + pow( k+extrak - random_z[l],2));
-          psi[0][i][j][k] += psi_soliton(r_c, radius, 1); //implemented only for field 1
+          psi[2*whichF][i][j][k] += psi_soliton(r_c, radius, ratio); 
         }
         // psi[1][i][j][k] = 0; // Set the imaginary part to zero
       }
@@ -186,41 +166,7 @@ void domain3::setManySolitons_same_radius(int num_Sol, double r_c, double length
   }
 }
 
-// // sets many solitons as initial condition, with same core radius, and random initial velocities (NOT REFINED)
-// void domain3::setManySolitons_same_radius_random_vel(int num_Sol, double r_c){
-//         #pragma omp barrier
-//       int random_x[num_Sol];
-//       int random_y[num_Sol];
-//       int random_z[num_Sol];
-//         double v_x[num_Sol];
-//         double v_y[num_Sol];
-//         double v_z[num_Sol];
-//       for(int i=0;i<num_Sol;i++){//Leave some space with respect to the edge of the grid
-//         random_x[i]= 2*round(r_c/deltaX) + rand()%(int)(PointsS - 4*round(r_c/deltaX) );
-//         random_y[i]= 2*round(r_c/deltaX) + rand()%(int)(PointsS - 4*round(r_c/deltaX) );
-//         random_z[i]= 2*round(r_c/deltaX) + rand()%(int)(PointsS - 4*round(r_c/deltaX) );
-//         v_x[i] = fRand(0,1);
-//         v_y[i] = fRand(0,1);
-//         v_z[i] = fRand(0,1);
-//       }
-//       #pragma omp parallel for collapse(3) //not sure whether this is parallelizable
-//       for(int i=0;i<PointsS;i++){
-//         for(int j=0; j<PointsS;j++){
-//           for(int k=0; k<PointsS;k++){
-//             psi[0][i][j][k] = 0; //set it to zero just to be sure
-//             psi[1][i][j][k] = 0; //set it to zero just to be sure
-//             for(int l=0; l<num_Sol; l++){
-//               double radius = deltaX * sqrt( pow( i-random_x[l],2) + pow( j-random_y[l],2) + pow( k-random_z[l],2));
-//               double phase=deltaX*(v_x[l] *i + v_y[l] *j + v_z[l] *k );
-//               psi[0][i][j][k] += psi_soliton(r_c, radius)*cos(phase);
-//             psi[1][i][j][k] += psi_soliton(r_c, radius)*sin(phase); // Set the imaginary part to zero
-//             }
-//           }
-//         }
-//       }
-//   }
-
-void domain3::setManySolitons_deterministic(double r_c, int num_sol){
+void domain3::setManySolitons_deterministic(double r_c, int num_sol, int whichF){
 // sets num_sol solitons (maximum of 30 solitons allowed)
 // as initial condition, with same core radius, with fixed positions (chosen randomly), for testing purposes
   int extrak= PointsSS*world_rank -nghost; // Take into account the node where you are
@@ -237,13 +183,14 @@ void domain3::setManySolitons_deterministic(double r_c, int num_sol){
     y[i]= center + (int) round(y_phys[i] / deltaX);
     z[i]= center + (int) round(z_phys[i] / deltaX);
   }
+  double ratio = ratio_mass[whichF];
   #pragma omp parallel for collapse(3) //not sure whether this is parallelizable
     for(int i=0;i<PointsS;i++){
         for(int j=0; j<PointsS;j++){
             for(int k=nghost; k<PointsSS+nghost;k++){
               for(int l=0; l<num_sol; l++){
                 double radius = deltaX * sqrt( pow( i-x[l],2) + pow( j-y[l],2) + pow( k +extrak-z[l],2));
-                psi[0][i][j][k] += psi_soliton(r_c, radius,1);
+                psi[2*whichF][i][j][k] += psi_soliton(r_c, radius,ratio);
               }
               // psi[1][i][j][k] = 0; // Set the imaginary part to zero
             }
@@ -251,13 +198,11 @@ void domain3::setManySolitons_deterministic(double r_c, int num_sol){
     }
 }
 
-void domain3::set_waves_Levkov(multi_array<double, 1> Nparts){
+void domain3::set_waves_Levkov(double Nparts, int whichF){
   // Sets waves initial conditions a la Levkov, Nparts is number of particles, for the various fields
-  for(int i=0; i<nfields; i++){
-    fgrid.inputSpectrum(Length, Nparts[i], ratio_mass[i]);
-    fgrid.calculateFT();
-    fgrid.transferpsi_add(psi, 1./pow(Length,3),nghost,i);
-  }
+  fgrid.inputSpectrum(Length, Nparts, ratio_mass[whichF]);
+  fgrid.calculateFT();
+  fgrid.transferpsi_add(psi, 1./pow(Length,3),nghost,whichF);
   if(world_rank==0){
     if (first_initial_cond == true){ 
       info_initial_cond.open(outputname+"initial_cond_info.txt");
@@ -265,27 +210,17 @@ void domain3::set_waves_Levkov(multi_array<double, 1> Nparts){
     }
     else info_initial_cond.open(outputname+"initial_cond_info.txt", ios_base::app);
     info_initial_cond.setf(ios_base::fixed);
-    info_initial_cond<<"Levkov_nfields_"+to_string(nfields); 
-    for(int i=0; i<nfields; i++){
-      info_initial_cond<<" "<< Nparts[i];
-    }
-    if(nfields>1){
-      for(int i=1; i<nfields; i++){
-        info_initial_cond<<" "<< ratio_mass[i];
-      }
-    }
-    info_initial_cond <<endl;
+    info_initial_cond<<"Levkov_field_"+to_string(nfields); 
+    info_initial_cond<<" "<< Nparts << " " << ratio_mass[whichF] << endl;
     info_initial_cond.close();
   }
 }
 
-void domain3::set_delta(multi_array<double, 1> Nparts){
+void domain3::set_delta(double Nparts, int whichF){
   // Sets delta in Fourier space initial conditions, Nparts is number of particles, for the various fields
-  for(int i=0; i<nfields; i++){
-    fgrid.inputDelta(Length, Nparts[i], ratio_mass[i]);
-    fgrid.calculateFT();
-    fgrid.transferpsi_add(psi, 1./pow(Length,3),nghost,i);
-  }
+  fgrid.inputDelta(Length, Nparts, ratio_mass[whichF]);
+  fgrid.calculateFT();
+  fgrid.transferpsi_add(psi, 1./pow(Length,3),nghost,whichF);
   if(world_rank==0){
     if (first_initial_cond == true){ 
       info_initial_cond.open(outputname+"initial_cond_info.txt");
@@ -293,26 +228,17 @@ void domain3::set_delta(multi_array<double, 1> Nparts){
     }
     else info_initial_cond.open(outputname+"initial_cond_info.txt", ios_base::app);
     info_initial_cond.setf(ios_base::fixed); 
-    info_initial_cond<<"Delta_nfields_"+to_string(nfields); 
-    for(int i=0; i<nfields; i++){
-      info_initial_cond<<" "<<Nparts[i];
-    }
-    if(nfields>1){
-      for(int i=1; i<nfields; i++){
-        info_initial_cond<< " "<< ratio_mass[i];
-      }
-    }
+    info_initial_cond<<"Delta_field_"+to_string(nfields); 
+    info_initial_cond<<" "<<Nparts<< " "<< ratio_mass[whichF] << endl;
     info_initial_cond.close();
   }
 }
 
-void domain3::set_theta(multi_array<double, 1> Nparts){
+void domain3::set_theta(double Nparts, int whichF){
   // Sets delta in Fourier space initial conditions, Nparts is number of particles, for the various fields
-  for(int i=0; i<nfields; i++){
-    fgrid.inputTheta(Length, Nparts[i], ratio_mass[i]);
-    fgrid.calculateFT();
-    fgrid.transferpsi_add(psi, 1./pow(Length,3),nghost,i);
-  }
+  fgrid.inputTheta(Length, Nparts, ratio_mass[whichF]);
+  fgrid.calculateFT();
+  fgrid.transferpsi_add(psi, 1./pow(Length,3),nghost,whichF);
   if(world_rank==0){
     if (first_initial_cond == true){ 
       info_initial_cond.open(outputname+"initial_cond_info.txt");
@@ -320,33 +246,103 @@ void domain3::set_theta(multi_array<double, 1> Nparts){
     }
     else info_initial_cond.open(outputname+"initial_cond_info.txt", ios_base::app);
     info_initial_cond.setf(ios_base::fixed); 
-    info_initial_cond<<"Theta_nfields_"+to_string(nfields); 
-    for(int i=0; i<nfields; i++){
-      info_initial_cond<<" "<<Nparts[i];
-    }
-    if(nfields>1){
-      for(int i=1; i<nfields; i++){
-        info_initial_cond<<" "<< ratio_mass[i];
-      }
-    }
+    info_initial_cond<<"Theta_field_"+to_string(nfields); 
+    info_initial_cond<<" "<<Nparts<<" "<< ratio_mass[whichF] << endl;
     info_initial_cond.close();
   }
 }
 
-void domain3::setEddington(Eddington *eddington, int numpoints, double radmin, double radmax, int fieldid, double ratiomass, bool simplify_k){
+void domain3::set_initial_from_file(string filename_in, string filename_vel){
+  multi_array<double,1> Arr1D(extents[nfields*PointsS*PointsS*PointsSS]);
+  ifstream infile(filename_in);
+  string temp;
+  double num;
+  size_t l = 0;
+  // Get the input from the input file
+  while (std::getline(infile, temp, ' ')) {
+    // Add to the list of output strings
+    num = stod(temp);
+    Arr1D[l] = num;
+    l++;
+  }
+  infile.close();
+  // Now the velocities
+  infile = ifstream(filename_vel);
+  l=0;
+  multi_array<double,1> Arr1D_vel(extents[3*nfields*PointsS*PointsS*PointsSS]);
+  while (std::getline(infile, temp, ' ')) {
+    // Add to the list of output strings
+    num = stod(temp);
+    Arr1D_vel[l] = num;
+    l++;
+  }
+  infile.close();
+
+  for(int whichF=0;whichF<nfields;whichF++){
+    for(int which_coord=0;which_coord<3;which_coord++){
+      fgrid.input_arr(Arr1D_vel,whichF, which_coord);
+      fgrid.calculateFT();                                         //calculates the FT
+      fgrid.kfactor_vel(Length, ratio_mass[whichF],which_coord);   //multiplies by \vec{k}*\vec{x}/k^2
+      fgrid.calculateIFT();                                        //calculates the inverse FT
+      // Put it in psi arr to spare memory. FT and IFT should be linear, so I
+      // just add k_x*v_x(k) + k_y*v_y(k) + k_z*v_z(k)
+      fgrid.transferpsi_add(psi,1./pow(PointsS,3),nghost,whichF);   //divides it by 1/PS^3 (to get the correct normalizaiton of the FT)
+    }
+  }
+  // This is me trying to do it with line integral, probably not the smartest of choices
+  // for(size_t nf = 0; nf < nfields; nf++)
+  //   for(size_t i =0; i<PointsS; i++){
+  //         if(i!=0) psi[2*nf+1][i][0][0] = Arr1D[i-1+0*PointsS+0*PointsS*PointsS + nf*PointsS*PointsS*PointsSS] *deltaX + psi[nf][i][0][0];
+  //     for(size_t j =0; j<PointsS-1; j++){
+  //         if(j!=0) psi[2*nf+1][i][j][0] = Arr1D[i+(j-1)*PointsS+0*PointsS*PointsS + (nf+1)*PointsS*PointsS*PointsSS] *deltaX + psi[nf][i][j][0];
+  //       for(size_t k =0; k<PointsSS-1; k++){
+  //         // Put the phases in imaginary psi array to not use further memory
+  //         psi[2*nf+1][i][j][k+1] = Arr1D[i+j*PointsS+k*PointsS*PointsS + (nf+2)*PointsS*PointsS*PointsSS] *deltaX + psi[nf][i][j][k];
+  //       }
+  //     }     
+  //   }
+  // recall that phases are stored on psi array
+  for(size_t nf = 0; nf < nfields; nf++)
+    for(size_t i =0; i<PointsS; i++)
+      for(size_t j =0; j<PointsS; j++)
+        for(size_t k =0; k<PointsSS; k++){
+          // Phases are stored on real part of psi array, so initialize imaginary psi first!
+          psi[2*nf+1][i][j][k] = Arr1D[i+j*PointsS+k*PointsS*PointsS + PointsS*PointsS*PointsSS*nf]*sin(psi[2*nf][i][j][k]);
+          psi[2*nf][i][j][k] = Arr1D[i+j*PointsS+k*PointsS*PointsS + PointsS*PointsS*PointsSS*nf]*cos(psi[2*nf][i][j][k]);
+        }
+}
+
+void domain3::setEddington(Eddington *eddington, int numpoints, double radmin, double radmax, int fieldid, double ratiomass, int num_k, bool simplify_k){
   // If simplify_k is true, then it inserts the random phases as gaussians on |k|; if false, then it inserts the random phases
-  // in every \vec{k} point
+  // in every \vec{k} point. num_k is the total number of k points you run the nested loop over (to speed up computation), put 16 or 32
   if (eddington->analytic_Eddington == false){ // If the profile does not have analytic formulas for f(E), compute it numerically
     eddington->compute_d2rho_dpsi2_arr(numpoints, radmin, radmax);
     eddington->compute_fE_arr();
     cout<<"Finished computing numeric f(E) for Eddington initial conditions"<<endl;
+    if (world_rank == 0){
+      vector<double> psiarr = eddington->get_psiarr();
+      vector<double> fe_arr = eddington->get_fE_arr();
+      cout<< "E values" << "\t"<<"f(E)" << endl;
+      for(int i=0; i< psiarr.size(); i++){
+        cout<< psiarr[i] << "\t"<<fe_arr[i] << endl;
+      }
+    }
   }
   Profile *profile = eddington->get_profile();
+  srand(time(NULL)); // Initialize the random seed for random phases
   
   int center = int(PointsS/2);
   int extrak= PointsSS*world_rank -nghost; // Take into account the node where you are
+  
+  // Maximum kmax for phases initialization
+  int kmax_phases = min(int(PointsS/2),int (ceil(sqrt(2*profile->Psi(radmin)) * Length/(2*M_PI) ) ) );
   // Maximum k allowed given the potential
-  int kmax_global = min(int(PointsS/2),int (ceil(sqrt(2*profile->Psi(radmin)) * Length/(2*M_PI) ) ) );
+  int kmax_global = int (ceil(sqrt(2*profile->Psi(radmin)) * Length/(2*M_PI) ) );
+  // If kmax_global is too big, skips some k to speed up the initialization
+  int num_k_real = min(int(PointsS/2), num_k); // The total number of k should not surpass PointsS/2
+  int skip_k = int(ceil(float(kmax_global)/num_k_real)); // Remember to ensure float division!
+  cout<< "skip k " << skip_k << endl;
+  
   if (world_rank==0){
     if (first_initial_cond == true){ 
       info_initial_cond.open(outputname+"initial_cond_info.txt");
@@ -358,10 +354,11 @@ void domain3::setEddington(Eddington *eddington, int numpoints, double radmin, d
     for(int i = 0; i < profile->params.size(); i++){
       info_initial_cond<<" "<<profile->params_name[i]<<" "<<profile->params[i];
     } 
-    info_initial_cond<<" "<< simplify_k <<endl;
+    info_initial_cond<<" ratio_mass "<< ratiomass << " " << num_k << " " <<simplify_k <<endl;
+    info_initial_cond.close();
   cout<< "kmax global for Eddington initial conditions: "<< kmax_global<<" "<< sqrt(2*profile->Psi(radmin)) * Length/(2*M_PI)   <<endl;
   }
-  vector<double> phases_send(int(pow(2*kmax_global,3)), 0);
+  vector<double> phases_send(int(pow(2*num_k_real,3)), 0);
   random_device rd;
   default_random_engine generator(rd()); // To generate gaussian distributed numbers, rd should initialize a random seed
 
@@ -369,29 +366,25 @@ void domain3::setEddington(Eddington *eddington, int numpoints, double radmin, d
     // multi_array<double, 3> phases(extents[2*kmax_global][2*kmax_global][2*kmax_global]);
     // Phases should depend only on velocity, so initialize them once here, on world rank 0
     if (world_rank ==0){
-      for(size_t k=0; k<2*kmax_global; k++)
-        for(size_t j=0; j<2*kmax_global; j++)
-          for(size_t i=0; i<2*kmax_global; i++)
-            phases_send[i + j*(2*kmax_global) + k*(4*kmax_global*kmax_global)] = fRand(0, 2*M_PI); // Phases should depend only on velocities
+      for(size_t k=0; k<2*kmax_global; k=k+skip_k){
+        for(size_t j=0; j<2*kmax_global; j=j+skip_k)
+          for(size_t i=0; i<2*kmax_global; i= i+skip_k){
+            size_t ii = size_t(i/skip_k);
+            size_t jj = size_t(j/skip_k);
+            size_t kk = size_t(k/skip_k);
+            phases_send[ii + jj*(2*num_k_real) + kk*(4*num_k_real*num_k_real)] = fRand(0, 2*M_PI); // Phases should depend only on velocities
+          }
+      }
     }
-    // multi_array<double, 3> phases(extents[2*kmax_global][2*kmax_global][2*kmax_global]);
-    // #pragma omp parallel for collapse(3)
-    // for(int k=0; k<2*kmax_global; k++)
-    //   for(int j=0; j<2*kmax_global; j++)
-    //     for(int i=0; i<2*kmax_global; i++)
-    //       phases[i][j][k] = phases_send[i+2*kmax_global*j + pow(2*kmax_global,2)*k]; // Phases should depend only on velocities
-    // #pragma omp barrier
-    // phases_send.clear();
-    // cout<<"Phases check "<< phases[1][0][0] << " "<< phases[1][1][1] << " world rank " << world_rank<<endl;
   }
   else if (simplify_k==true){ 
     // Phases should depend only on velocity, so initialize them once here, on world rank 0
     if (world_rank ==0){
       for(int i=0; i<2; i++) // real and imaginary part
-        for(int j=0; j<kmax_global; j++){
+        for(int j=0; j<kmax_phases; j++){
           normal_distribution<double> distribution(0, sqrt(2*M_PI*j*j + 1E-10)); // Avoid zero standard deviation
           double draw = distribution(generator);
-          phases_send[j + i*kmax_global] =draw; // Phases should depend only on velocities
+          phases_send[j + i*kmax_phases] =draw; // Phases should depend only on velocities
         }
     }
   }
@@ -413,31 +406,42 @@ void domain3::setEddington(Eddington *eddington, int numpoints, double radmin, d
   for(int i=0; i<PointsS; i++){
     for(int j=0; j<PointsS; j++)
       for(int k=nghost; k<PointsSS+nghost; k++){
+      // cout<< k + PointsSS*j + PointsS*PointsS*i<<endl;
         // I want this to understand at which point of the initialization I am in
         if(j==0 and k==nghost) {
-          cout<< "In initial condition, arrived at point in x dimension "<< check_index << " for world rank " <<world_rank<<endl;
-          check_index++;
+          cout<< "In initial condition, arrived at point in x dimension "<< i << " for world rank " <<world_rank<<endl;
+          // check_index++;
         }
         // f(E) is defined up to a minimum energy given by radmin, ensure you do not go below it
         double distance = max(Length/PointsS *sqrt( pow(i-center,2) + pow(j-center,2) + pow(k+extrak-center,2)), radmin);
+        
         // ceil rounds up to nearest integer; this is the "local" maximum k, given Psi(r)
-        int kmax = min(int(PointsS/2),int (ceil(sqrt(2*profile->Psi(distance)) * Length/(2*M_PI) ) ));
+        // int kmax = min(int(PointsS/2), int(ceil(sqrt(2*profile->Psi(distance)) * Length/(2*M_PI) ) ));
+        int kmax = int (ceil(sqrt(2*profile->Psi(distance)) * Length/(2*M_PI) ) );
+        // Get to the closest, rounded up, k vector allowed by the num_k splitting; it has to be divisible by skip_k
+        if(kmax%skip_k != 0) kmax = kmax + skip_k- (kmax % skip_k); 
+        
         double psi_point_real = 0;
         double psi_point_im = 0;
         if(simplify_k == false){
-          for(int v1=-kmax; v1<kmax; v1++){
-            for(int v2=-kmax; v2<kmax; v2++)
-              for(int v3=-kmax; v3<kmax; v3++){
-                double vx = Length/PointsS*(v1*i + v2*j + v3*(k+extrak))*ratiomass; // r*k\cdot x, taking into account the ratio_mass r
+          for(int v1=-kmax; v1<kmax; v1=v1+skip_k){
+            for(int v2=-kmax; v2<kmax; v2=v2+skip_k)
+              for(int v3=-kmax; v3<kmax; v3=v3+skip_k){
                 double vv = sqrt(v1*v1 + v2*v2 + v3*v3); // |k_f|
+                double vx = Length/PointsS*(v1*i + v2*j + v3*(k+extrak))*ratiomass; // r*k\cdot x, taking into account the ratio_mass r
                 double vtilde = 2*M_PI/Length *vv;
                 double E = profile->Psi(distance) - pow(vtilde,2)/2; // You have to ensure E > 0, for bound system
                 if (E >0){
                   double fe = eddington->fE_func(E);
-                  double psi_point = pow(2*M_PI/Length, 3./2)*sqrt(fe);
-                  size_t index = size_t(v1+kmax_global) + size_t(2*kmax_global*size_t(v2+kmax_global))+ pow(2*size_t(kmax_global),2)*size_t(v3+kmax_global);
-                  psi_point_real += psi_point*cos(phases_send[index] + 2*M_PI/Length *vx);
-                  psi_point_im += psi_point*sin(phases_send[index] + 2*M_PI/Length *vx);
+                  double psi_point = pow(2*M_PI/Length * skip_k, 3./2)*sqrt(fe);
+                  size_t index = size_t( size_t(v1/skip_k)+num_k_real) 
+                        + size_t(2*num_k_real*size_t( size_t(v2/skip_k)+num_k_real))
+                        + size_t(pow(2*size_t(num_k_real),2))*size_t( size_t(v3/skip_k)+num_k_real);
+                  psi_point_real +=  psi_point*cos(phases_send[index] + 2*M_PI/Length *vx);
+                  psi_point_im +=  psi_point*sin(phases_send[index] + 2*M_PI/Length *vx);
+                  // if (isnan(psi_point_real) == 1 || isnan(psi_point_im) ==1) 
+                  // {cout<< phases_send[index] << " " << kmax << " " << kmax_phases << " "<<i << " "<<j << " "<< k << " "<< fe<< " "<< psi_point << " "<< E << endl;
+                  // sleep(10);}
                 }
               }
           }

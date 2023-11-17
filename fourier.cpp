@@ -143,6 +143,38 @@ void Fourier::inputpsi(multi_array<double,4> &psi, int nghost, int whichPsi){
   #pragma omp barrier
 }
 
+void Fourier::input_arr(multi_array<double,1> &arr1d, int whichfield, int which_coordinate){
+  size_t i;
+  for(i=0;i<Nx*Nx*Nz;i++){
+        rin[i][0]= arr1d[i+ which_coordinate*Nx*Nx*Nz + whichfield*Nx*Nx*Nz*3];
+        rin[i][1]= 0;
+  }
+}
+
+void Fourier::kfactor_vel(double Length,double r, int which_coord){
+  // I have to distinguish between the two fields, field 1 has the mass ratio r attached
+  size_t i,j,k;
+  #pragma omp parallel for collapse(3)
+  for(i=0;i<Nx;i++)
+    for(j=0; j<Nx;j++)
+      for(k=0; k<Nz;k++){
+        size_t ktrue=world_rank*Nz+k;
+        double ksq= (pow(shift(i,Nx),2)+pow(shift(j,Nx),2)+pow(shift(ktrue,Nx),2))*4*M_PI*M_PI/(Length*Length);
+        double kx;
+        if(which_coord==0)
+          kx = shift(i,Nx)*2*M_PI/Length;
+        else if(which_coord==1)
+          kx = shift(j,Nx)*2*M_PI/Length;
+        if(which_coord==2)
+          kx = shift(ktrue,Nx)*2*M_PI/Length;
+        double repart=rin[i+Nx*j+Nx*Nx*k][0];
+        double impart=rin[i+Nx*j+Nx*Nx*k][1];
+        rin[i+Nx*j+Nx*Nx*k][0]= -r*kx*impart/ksq;
+        rin[i+Nx*j+Nx*Nx*k][1]= r*kx*repart/ksq;
+      }
+  #pragma omp barrier
+}
+
 //function for putting -k^2 factor; more precisely, psi->exp(-i c_alpha dt k^2/2 ) psi
 void Fourier::kfactorpsi(double tstep, double Length, double calpha, double r){
   // I have to distinguish between the two fields, field 1 has the mass ratio r attached
@@ -201,7 +233,7 @@ for(size_t i=0;i<Nx;i++)
       rin[i+Nx*j+Nx*Nx*k][1]=0;
     }
 #pragma omp barrier
-};
+}
 
 //function for putting -1/k^2 factor on the output of the FT
 // needed for solving the Poisson equation to get Phi

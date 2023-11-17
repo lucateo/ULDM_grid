@@ -143,6 +143,7 @@ class Eddington{
     void compute_d2rho_dpsi2_arr(int numpoints, double rmin, double rmax){
       vector<double> rho_arr;
       vector<double> psiarr;
+      rmin = 0.9*rmin; // Ensure that the maximum energy is never surpassed in the actual run
       double radius = pow(10, (log10(rmax) -log10(rmin))/(numpoints-1) * (numpoints-1) +log10(rmin) ); // Log spaced
       rho_arr.push_back(profile->density(radius));
       psiarr.push_back(profile->Psi(radius));
@@ -174,7 +175,7 @@ class Eddington{
       for(int i=1; i< Ndim; i++){ // avoid very first bin, which is zero
         double Qmax = sqrt(psi_arr[i]);
         double E = psi_arr[i];
-        int numpoints_int = 100+10*i;
+        int numpoints_int = 100+50*i;
         double bin = 0;
         for(int j=0; j< numpoints_int; j++){
           double Q1 = pow(10 ,(log10(Qmax) -log10(Qmin))/(numpoints_int)* j + log10(Qmin));
