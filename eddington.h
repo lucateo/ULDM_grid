@@ -153,7 +153,7 @@ class Eddington{
         // Go with inverse order, ordering psi from smallest to largest
         double radius = pow(10, (log10(rmax) -log10(rmin))/(numpoints-1) * (numpoints-1-i) +log10(rmin) ); // Log spaced
         double psi = profile->Psi(radius);
-        if(abs((psi - psiarr[j])/(psi + psiarr[j])) > 1E-7){ // If the relativ change is larger than 1e-7, accept the point (to avoid very tiny changes in psi)
+        if(abs((psi - psiarr[j])/(psi + psiarr[j])) > 1E-7){ // If the relative change is larger than 1e-7, accept the point (to avoid very tiny changes in psi)
           rho_arr.push_back(profile->density(radius));
           psiarr.push_back(profile->Psi(radius));
           j++;

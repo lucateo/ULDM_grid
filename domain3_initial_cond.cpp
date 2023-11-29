@@ -335,13 +335,14 @@ void domain3::setEddington(Eddington *eddington, int numpoints, double radmin, d
   int extrak= PointsSS*world_rank -nghost; // Take into account the node where you are
   
   // Maximum kmax for phases initialization
-  int kmax_phases = min(int(PointsS/2),int (ceil(sqrt(2*profile->Psi(radmin)) * Length/(2*M_PI) ) ) );
+  int kmax_phases = min(int(PointsS/2),int (ceil(sqrt(2*profile->Psi(radmin)) * Length*ratiomass/(2*M_PI) ) ) );
   // Maximum k allowed given the potential
-  int kmax_global = int (ceil(sqrt(2*profile->Psi(radmin)) * Length/(2*M_PI) ) );
+  int kmax_global = int (ceil(sqrt(2*profile->Psi(radmin)) * Length*ratiomass/(2*M_PI) ) );
   // If kmax_global is too big, skips some k to speed up the initialization
   int num_k_real = min(int(PointsS/2), num_k); // The total number of k should not surpass PointsS/2
+  // int num_k_real = num_k; 
   int skip_k = int(ceil(float(kmax_global)/num_k_real)); // Remember to ensure float division!
-  cout<< "skip k " << skip_k << endl;
+  if(world_rank==0) cout<< "skip k " << skip_k << endl;
   
   if (world_rank==0){
     if (first_initial_cond == true){ 
@@ -356,7 +357,7 @@ void domain3::setEddington(Eddington *eddington, int numpoints, double radmin, d
     } 
     info_initial_cond<<" ratio_mass "<< ratiomass << " " << num_k << " " <<simplify_k <<endl;
     info_initial_cond.close();
-  cout<< "kmax global for Eddington initial conditions: "<< kmax_global<<" "<< sqrt(2*profile->Psi(radmin)) * Length/(2*M_PI)   <<endl;
+    cout<< "kmax global for Eddington initial conditions: "<< kmax_global<<" "<< sqrt(2*profile->Psi(radmin)) *ratiomass* Length/(2*M_PI)  <<endl;
   }
   vector<double> phases_send(int(pow(2*num_k_real,3)), 0);
   random_device rd;
@@ -366,13 +367,10 @@ void domain3::setEddington(Eddington *eddington, int numpoints, double radmin, d
     // multi_array<double, 3> phases(extents[2*kmax_global][2*kmax_global][2*kmax_global]);
     // Phases should depend only on velocity, so initialize them once here, on world rank 0
     if (world_rank ==0){
-      for(size_t k=0; k<2*kmax_global; k=k+skip_k){
-        for(size_t j=0; j<2*kmax_global; j=j+skip_k)
-          for(size_t i=0; i<2*kmax_global; i= i+skip_k){
-            size_t ii = size_t(i/skip_k);
-            size_t jj = size_t(j/skip_k);
-            size_t kk = size_t(k/skip_k);
-            phases_send[ii + jj*(2*num_k_real) + kk*(4*num_k_real*num_k_real)] = fRand(0, 2*M_PI); // Phases should depend only on velocities
+      for(size_t k=0; k<2*num_k_real; k++){
+        for(size_t j=0; j<2*num_k_real; j++)
+          for(size_t i=0; i<2*num_k_real; i++){
+            phases_send[i + j*size_t(2*num_k_real) + k*size_t(4*num_k_real*num_k_real)] = fRand(0, 2*M_PI); // Phases should depend only on velocities
           }
       }
     }
@@ -417,26 +415,31 @@ void domain3::setEddington(Eddington *eddington, int numpoints, double radmin, d
         
         // ceil rounds up to nearest integer; this is the "local" maximum k, given Psi(r)
         // int kmax = min(int(PointsS/2), int(ceil(sqrt(2*profile->Psi(distance)) * Length/(2*M_PI) ) ));
-        int kmax = int (ceil(sqrt(2*profile->Psi(distance)) * Length/(2*M_PI) ) );
+        int kmax = int (ceil(sqrt(2*profile->Psi(distance)) * ratiomass * Length/(2*M_PI) ) );
         // Get to the closest, rounded up, k vector allowed by the num_k splitting; it has to be divisible by skip_k
-        if(kmax%skip_k != 0) kmax = kmax + skip_k- (kmax % skip_k); 
+        if(kmax%skip_k != 0) {
+          kmax = kmax + skip_k- (kmax % skip_k); 
+        }
         
         double psi_point_real = 0;
         double psi_point_im = 0;
+        size_t index2 = 0;
         if(simplify_k == false){
           for(int v1=-kmax; v1<kmax; v1=v1+skip_k){
             for(int v2=-kmax; v2<kmax; v2=v2+skip_k)
               for(int v3=-kmax; v3<kmax; v3=v3+skip_k){
                 double vv = sqrt(v1*v1 + v2*v2 + v3*v3); // |k_f|
-                double vx = Length/PointsS*(v1*i + v2*j + v3*(k+extrak))*ratiomass; // r*k\cdot x, taking into account the ratio_mass r
-                double vtilde = 2*M_PI/Length *vv;
+                double vx = Length/PointsS*(v1*i + v2*j + v3*(k+extrak)); 
+                double vtilde = 2*M_PI/ratiomass/Length *vv;// taking into account the ratio_mass r, to ensure periodic boundary conditions
                 double E = profile->Psi(distance) - pow(vtilde,2)/2; // You have to ensure E > 0, for bound system
                 if (E >0){
                   double fe = eddington->fE_func(E);
-                  double psi_point = pow(2*M_PI/Length * skip_k, 3./2)*sqrt(fe);
+                  double psi_point = pow(2*M_PI/Length * skip_k/ratiomass, 3./2)*sqrt(fe);
                   size_t index = size_t( size_t(v1/skip_k)+num_k_real) 
                         + size_t(2*num_k_real*size_t( size_t(v2/skip_k)+num_k_real))
                         + size_t(pow(2*size_t(num_k_real),2))*size_t( size_t(v3/skip_k)+num_k_real);
+                  if(index == index2) cout << "AAAHHHHHHHHHHHHHH " << v1 << " "<<  v2 <<  " " << v3;
+                  index2 = index;
                   psi_point_real +=  psi_point*cos(phases_send[index] + 2*M_PI/Length *vx);
                   psi_point_im +=  psi_point*sin(phases_send[index] + 2*M_PI/Length *vx);
                   // if (isnan(psi_point_real) == 1 || isnan(psi_point_im) ==1) 

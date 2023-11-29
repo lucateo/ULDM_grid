@@ -108,24 +108,25 @@ void domain3::outputSlicedDensity(ofstream& fileout){ // Outputs the projected 2
     for(size_t i=0;i<PointsS;i++)
       for(size_t j=0; j<PointsS;j++)
         for(size_t k=nghost; k<PointsSS+nghost;k++){
-        density_sliced[j+i*PointsS+l*PointsS*PointsS]= density_sliced[j+i*PointsS+l*PointsS*PointsS] 
+        density_sliced[l+i*nfields+j*nfields*PointsS]= density_sliced[l+i*nfields+j*nfields*PointsS] 
                                                      + pow(psi[2*l][i][j][k],2)+pow(psi[2*l+1][i][j][k],2);
         }
   #pragma omp barrier
+
   // send to node 0, 4th entry should be the node you send to, 5th entry is a tag (to be shared between receiver and transmitter)
   if(world_rank!=0 && mpi_bool==true){
-      MPI_Send(&density_sliced.front(), density_sliced.size(), MPI_DOUBLE, world_rank, 500+world_rank, MPI_COMM_WORLD);
+    MPI_Send(&density_sliced.front(), density_sliced.size(), MPI_DOUBLE, 0, 500, MPI_COMM_WORLD);
   }
   // receive from other nodes, 4th entry should be the node you receive from, 5th entry is a tag (to be shared between receiver and transmitter)
   if(world_rank==0 && mpi_bool==true){
     vector<double> density_sliced_rec(nfields*PointsS*PointsS,0); // The receiving vector
-    for(int i=1;i<world_rank;i++){
-      MPI_Recv(&density_sliced_rec.front(),density_sliced_rec.size(), MPI_DOUBLE, 0, 500+i, MPI_COMM_WORLD,MPI_STATUS_IGNORE);
-      transform(density_sliced.begin(), density_sliced.end(), density_sliced_rec.begin(), density_sliced.begin(), std::plus<int>());
+    for(int i=1;i<world_size;i++){
+      MPI_Recv(&density_sliced_rec.front(),density_sliced_rec.size(), MPI_DOUBLE, i, 500, MPI_COMM_WORLD,MPI_STATUS_IGNORE);
+      transform(density_sliced.begin(), density_sliced.end(), density_sliced_rec.begin(), density_sliced.begin(), std::plus<double>());
     }
   }
   if(world_rank==0){
-    vector<int> dims = {nfields, int(PointsS), int(PointsS)};
+    vector<int> dims = {nfields,int(PointsS),int(PointsS)};
     print3_1dvector(density_sliced, dims, fileout);
   }
 }
@@ -257,9 +258,9 @@ void domain3::snapshot(double stepCurrent){//Outputs the full density profile; i
     timesfile_grid<<","<<Etot<<"}\n"<<","<<flush;
     cout<<"Output animation results"<<endl;
     cout.setf(ios_base::fixed);
-    outputSlicedDensity(profile_sliced); // Output of both fields
-    profile_sliced<<"\n"<<","<<flush;
   }
+    outputSlicedDensity(profile_sliced); // Output of both fields, this has to run on all nodes!!!!
+  if(world_rank==0) profile_sliced<<"\n"<<","<<flush;
   // } //if it's not the last timeshot put a comma { , , , , }
 /*            if(Grid3D == true){
       ofstream grid;

@@ -41,12 +41,12 @@ domain3::~domain3() {};
 
 long double domain3::psisqmean(int whichPsi){// Computes the mean |psi|^2 of field i=0,1
   long double totV=0;
-    #pragma omp parallel for collapse(3) reduction(+:totV)
-    for(size_t i=0;i<PointsS;i++)
-      for(size_t j=0;j<PointsS;j++)
-        for(size_t k=nghost;k<PointsSS+nghost;k++)
-          totV=totV+pow(psi[2*whichPsi][i][j][k],2)+pow(psi[2*whichPsi+1][i][j][k],2);
-    #pragma omp barrier
+  #pragma omp parallel for collapse(3) reduction(+:totV)
+  for(size_t i=0;i<PointsS;i++)
+    for(size_t j=0;j<PointsS;j++)
+      for(size_t k=nghost;k<PointsSS+nghost;k++)
+        totV=totV+pow(psi[2*whichPsi][i][j][k],2)+pow(psi[2*whichPsi+1][i][j][k],2);
+  #pragma omp barrier
 
   long double totVshared; // total summed up across all nodes
   if(mpi_bool==true){
@@ -270,6 +270,7 @@ void domain3::solveConvDif(){
   else
     openfiles();
   int stepCurrent=0;
+  if (world_rank==0) cout<< "File name of the run " << outputname << endl;
   if (start_from_backup == false){
     tcurrent = 0;
     snapshot(stepCurrent); // I want the snapshot of the initial conditions
@@ -315,22 +316,28 @@ void domain3::solveConvDif(){
       etot_current += e_kin_full1(i) + full_energy_pot(i);
     }
     double compare_energy = abs(etot_current-E_tot_initial)/abs(etot_current + E_tot_initial);
+    double compare_energy_running = abs(etot_current-E_tot_running)/abs(etot_current + E_tot_running);
     if (world_rank==0) cout<<"E tot current "<<etot_current << " E tot initial " << E_tot_initial << " compare E ratio "<<compare_energy <<endl;
     // Criterium for dropping by half the time step if energy is not conserved well enough
     if(compare_energy > 0.001 ){
       dt = dt/2;
-      E_tot_running = etot_current;
       count_energy++;
-      if (abs(etot_current-E_tot_running)/abs(etot_current + E_tot_running) < 0.00001 && count_energy > 2 + switch_en_count){
+      if (compare_energy_running < 0.00001 && count_energy > 2 + switch_en_count){
         E_tot_initial = E_tot_running;
         count_energy = 0;
-        if (world_rank==0) cout<<"Switch energy "<<switch_en_count <<" ---------------------------------------------------" <<endl;
+        if (world_rank==0) cout<<"Switch energy "<<switch_en_count <<" --------------------------------------------------------------------------------------------" <<endl;
         switch_en_count++;
       }
     }
-    else if(compare_energy<0.0001){
+    else if(compare_energy<0.0001 && compare_energy_running>1E-8){
       dt = dt*1.2; // Less aggressive when increasing the time step, rather than when decreasing it
     }
+    else if (compare_energy_running < 1E-8) {
+      dt = dt*2; // If it remains stuck to an incredibly low dt, try to unstuck it
+      cout<<"Unstucking --------------------------------------------------------------------------------------------------------------------"<<endl;
+    }
+    E_tot_running = etot_current;
+
     if(stepCurrent%numoutputs==0 || stepCurrent==numsteps) {
       if (mpi_bool==true){ 
         sortGhosts(); // Should be called, to do derivatives in real space

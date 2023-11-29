@@ -433,6 +433,8 @@ int main(int argc, char** argv){
     else if (world_rank==0)
       cout<<"You need 14 arguments to pass to the code: mpi_bool, Nx, Length, numsteps, dt, num_fields, output_profile, output_profile_radial, initial_cond, start_from_backup string, rmin, rmax, Nsol, length_lim" << endl;
   }
+
+
   else if (initial_cond == "deterministic" ) {// Mocz initial conditions
     if (argc > 12){
       double rc = atof(argv[11]); //radius of soliton
@@ -472,7 +474,7 @@ int main(int argc, char** argv){
         Nparts[i] = atof(argv[13+i]); // Number of particles
         outputname = outputname + "Npart"+to_string(i) +"_"+ to_string(Nparts[i]) + "_";
       }
-      NFW profile = NFW(rs_nfw, rho0_tilde, Length/2, true);
+      NFW profile = NFW(rs_nfw, rho0_tilde, Length, true);
       domain_ext D3(Nx,Nz,Length,num_fields,numsteps,dt,outputnumb, outputnumb_profile, outputname, Pointsmax, 
         world_rank,world_size,nghost,mpirun_flag, &profile);
       if(num_fields > 1){
@@ -514,7 +516,7 @@ int main(int argc, char** argv){
             + "_Rs_" + to_string(rs_nfw) + "_rh0tilde_" + to_string(rho0_tilde)
             +"_";
       outputname = outputname + "Nsol_"+ to_string(Nsol)+ "_rc_"+ to_string(rc) + "_";
-      NFW profile = NFW(rs_nfw, rho0_tilde, Length/2, true);
+      NFW profile = NFW(rs_nfw, rho0_tilde, Length, true);
       domain_ext D3(Nx,Nz,Length,num_fields,numsteps,dt,outputnumb, outputnumb_profile, outputname, Pointsmax, 
         world_rank,world_size,nghost,mpirun_flag, &profile);
       D3.set_ratio_masses(ratio_mass);
@@ -529,6 +531,43 @@ int main(int argc, char** argv){
     }
     else if (world_rank==0)
       cout<<"You need 14 arguments to pass to the code: mpi_bool, Nx, Length, numsteps, dt, num_fields, output_profile, output_profile_radial, initial_cond, start_from_backup string, rho0_tilde, Rs, Nsol, rc" << endl;
+  }
+  
+
+  else if (initial_cond == "NFW_ext_Eddington" ) {// External NFW initial conditions with Eddington NFW profile
+    if (argc > 14){
+      double rho0_tilde = atof(argv[11]);//Adimensional rho_0 for the NFW external potential
+      double rs_nfw = atof(argv[12]); // Adimensional rs
+      double rho_edd = atof(argv[13]); // Eddington rhos
+      double rs_edd = atof(argv[14]); // Eddington rs
+      int num_k = atoi(argv[15]); // Number of k in Eddington k sum
+      string outputname;
+      if (mpirun_flag == true)
+        outputname = "out_ext_nfw/out_nfwExt_Eddington_NFW_mpi_Nx" + to_string(Nx) + "_L_" + to_string(Length)
+            + "_RsExt_" + to_string(rs_nfw) + "_rh0Ext_" + to_string(rho0_tilde)
+            +"_Rs_" + to_string(rs_edd) + "_rh00_" + to_string(rho_edd) + "_";
+      else
+        outputname = "out_ext_nfw/out_nfwExt_Eddington_NFW_Nx" + to_string(Nx) + "_L_" + to_string(Length)
+            + "_RsExt_" + to_string(rs_nfw) + "_rh0Ext_" + to_string(rho0_tilde)
+            +"_Rs_" + to_string(rs_edd) + "_rh00_" + to_string(rho_edd) + "_";
+      
+      NFW profile_ext = NFW(rs_nfw, rho0_tilde, Length, true);
+      NFW profile_edd = NFW(rs_edd, rho_edd, Length, true);
+      Eddington eddington = Eddington(&profile_edd);
+      domain_ext D3(Nx,Nz,Length,num_fields,numsteps,dt,outputnumb, outputnumb_profile, outputname, Pointsmax, 
+        world_rank,world_size,nghost,mpirun_flag, &profile_ext);
+      D3.set_ratio_masses(ratio_mass);
+      D3.set_grid(false);
+      D3.set_grid_phase(false); // It will output 2D slice of phase grid
+      if(start_from_backup=="true")
+        D3.initial_cond_from_backup();
+      else
+        D3.setEddington(&eddington, 500, Length/Nx, Length, 0, ratio_mass[0], num_k, false); // The actual max radius is between Length and Length/2
+      D3.set_backup_flag(backup_bool);
+      D3.solveConvDif();
+    }
+    else if (world_rank==0)
+      cout<<"You need 15 arguments to pass to the code: mpi_bool, Nx, Length, numsteps, dt, num_fields, output_profile, output_profile_radial, initial_cond, start_from_backup string, rho0_tilde ext, Rs ext, rho0_tilde Eddington, Rs Eddington, num_k" << endl;
   }
   
   
@@ -581,7 +620,7 @@ int main(int argc, char** argv){
   
   else if (world_rank==0){
     cout<< "String in 9th position does not match any possible initial conditions; possible initial conditions are:" << endl;
-    cout<< "Schive , Mocz , deterministic , levkov, delta, theta, 1Sol, NFW, NFW_solitons, eddington_nfw, eddington_nfw_levkov, eddington_nfw_soliton, stars" <<endl;
+    cout<< "Schive , Mocz , deterministic , levkov, delta, theta, 1Sol, NFW, NFW_solitons, NFW_ext_Eddington, eddington_nfw, eddington_nfw_levkov, eddington_nfw_soliton, stars" <<endl;
   }
   if(mpirun_flag==true){
     MPI_Finalize();

@@ -1,6 +1,8 @@
 #ifndef ULDM_MPI_2FIELDS_H
 #define ULDM_MPI_2FIELDS_H
 
+#include <cstddef>
+#include <ios>
 #include<iostream>
 #include<stdio.h>
 #include <cstdlib>
@@ -49,7 +51,7 @@ extern void transferghosts( multi_array<double,4> &gr,int ii, int world_rank, in
 extern vector<double> num_second_derivative(vector<double> & xarr, vector<double> & yarr);
 extern multi_array<double,1> Integral_trapezoid(multi_array<double,1> & xarr, multi_array<double,1> & yarr);
 extern double interpolant(double x, vector<double> & xarr, vector<double> & yarr);
-extern void export_for_plot(string name, vector<double> xarr, vector<double> yarr);
+extern void export_for_plot(string name, vector<double> &xarr, vector<double> &yarr);
 
 class Eddington;  // Forward declaration, to avoid multiple headers calling each other issues
 // class Profile; // Forward declaration, to avoid multiple headers calling each other issues
@@ -66,7 +68,7 @@ void print2(multi_array<T,2> & v1,  U & filename){ //It prints a 2D array in the
             for(int i = 0; i < Nx; i++){
             filename<<"{";
                 for(int j = 0; j < Ny; j++){
-                      filename<<v1[i][j];
+                      filename<< scientific <<v1[i][j];
                       if(j!=(Ny-1)){filename<<",";}
             }
         filename<<"}";
@@ -86,7 +88,7 @@ void print3(multi_array<T,3> & v1,  U & filename){ //It prints a 3D array in the
     for(int j = 0;j < Ny; j++){
       filename<<"{";
       for(int k = 0;k < Nz; k++){
-        filename<<v1[i][j][k];
+        filename<<scientific << v1[i][j][k];
         if(k!=(Nz-1)){filename<<",";}
       }
       filename<<"}";
@@ -109,7 +111,7 @@ void print3_cpp(multi_array<T,3> & v1,  U & filename){
     for(int k = 0;k < Nz; k++){
       for(int j = 0;j < Ny; j++){
         for(int i = 0;i < Nx; i++){
-          filename<<v1[i][j][k];
+          filename<< scientific << v1[i][j][k];
           if(k!=(Nx-1) || j!=(Nx-1) || i!=(Nx-1)) //If it is not the last one
             filename<< " ";
         }
@@ -126,7 +128,7 @@ void print4_cpp(multi_array<T,4> & v1,  U & filename, int nghost){
     for(int k = nghost;k < Nz-nghost; k++){
       for(int j = 0;j < Nx; j++){
         for(int i = 0;i < Nx; i++){
-          filename<<v1[l][i][j][k];
+          filename<< scientific << v1[l][i][j][k];
           if(l!=(Nl-1) || k!=(Nz-nghost-1) || j!=(Ny-1) || i!=(Nx-1)) //If it is not the last one
             filename<< " ";
         }
@@ -139,12 +141,12 @@ void print4_cpp(multi_array<T,4> & v1,  U & filename, int nghost){
 void inline print3_1dvector(vector<double> &v1, vector<int> &dims, ofstream &filename){
   int ndims = dims.size(); // Number of dimensions, which should be 3
   filename<<"{";
-  for(int i = 0;i < dims[0]; i++){
+  for(size_t i = 0;i < dims[0]; i++){
     filename<<"{";
-    for(int j = 0;j < dims[1]; j++){
+    for(size_t j = 0;j < dims[1]; j++){
       filename<<"{";
-      for(int k = 0;k < dims[2]; k++){
-        filename<<v1[k +j*dims[2] + i * dims[2]* dims[1]];
+      for(size_t k = 0;k < dims[2]; k++){
+        filename<<scientific << v1[i +j*dims[0] + k * dims[0]* dims[1]];
         if(k!=(dims[2]-1)){filename<<",";}
       }
       filename<<"}";
