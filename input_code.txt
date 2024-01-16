@@ -1,0 +1,28 @@
+# This is the input file code; the first line are the parameters of the run: 
+# num_fields: number of fields
+# Nx:	
+# Length: 
+# dt_initial: initial time-step;
+# numsteps: 
+# outputnumb: number of 2D profile snapshots
+# out_profile: number of radially averaged profile snapshots
+# initial_cond: string which specifies the initial condition
+# start_from_backup: if true, starts from a already saved run, with the same parameters mpi_string, Nx, Length, num_fields, initial_cond
+# Example: a run of one field with a box of 128^3 points, whose length is 100 in grid units, initial dt=0.1, with 1000 time steps, snapshot of profile every 20 timesteps, snapshot of projected density every 40 timesteps, initial condition corresponding to stars_soliton, which does not start from a backup run 
+#1 128 100 0.1 1000 20 40 stars_soliton false 
+#
+#
+2 128 100 0.1 1000 20 20 eddington_nfw_soliton false
+#
+#
+# The second line specify the parameters of the initial condition chosen, in this example, rc =5 and Nstars =100
+#
+#
+5 20 0.001 4 8
+#
+# 
+# The third line are hyperparameters like the option for mpi, etc.; order:
+# mpi, set3Dgrid, outputPhase
+#
+#
+0 0 0

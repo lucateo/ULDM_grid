@@ -42,6 +42,12 @@ void domain3::setInitialSoliton_1(double r_c, int whichpsi){ // sets 1 soliton i
   int center = (int) PointsS / 2; // The center of the grid, more or less
   int extrak= PointsSS*world_rank -nghost; // Take into account the node where you are. If mpi==false, world rank and nghost are initialized to 0
   double ratio = ratio_mass[whichpsi]; //
+  if (first_initial_cond == true){ 
+    info_initial_cond.open(outputname+"initial_cond_info.txt");
+    first_initial_cond = false;
+  }
+  else info_initial_cond.open(outputname+"initial_cond_info.txt", ios_base::app);
+  info_initial_cond<<"1Soliton " << r_c << " " << whichpsi << endl;
   #pragma omp parallel for collapse(3) //not sure whether this is parallelizable
     for(int i=0;i<PointsS;i++){
       for(int j=0; j<PointsS;j++){
@@ -423,7 +429,6 @@ void domain3::setEddington(Eddington *eddington, int numpoints, double radmin, d
         
         double psi_point_real = 0;
         double psi_point_im = 0;
-        size_t index2 = 0;
         if(simplify_k == false){
           for(int v1=-kmax; v1<kmax; v1=v1+skip_k){
             for(int v2=-kmax; v2<kmax; v2=v2+skip_k)
@@ -438,8 +443,6 @@ void domain3::setEddington(Eddington *eddington, int numpoints, double radmin, d
                   size_t index = size_t( size_t(v1/skip_k)+num_k_real) 
                         + size_t(2*num_k_real*size_t( size_t(v2/skip_k)+num_k_real))
                         + size_t(pow(2*size_t(num_k_real),2))*size_t( size_t(v3/skip_k)+num_k_real);
-                  if(index == index2) cout << "AAAHHHHHHHHHHHHHH " << v1 << " "<<  v2 <<  " " << v3;
-                  index2 = index;
                   psi_point_real +=  psi_point*cos(phases_send[index] + 2*M_PI/Length *vx);
                   psi_point_im +=  psi_point*sin(phases_send[index] + 2*M_PI/Length *vx);
                   // if (isnan(psi_point_real) == 1 || isnan(psi_point_im) ==1) 

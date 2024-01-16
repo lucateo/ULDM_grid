@@ -43,9 +43,12 @@ double psi_soliton(double r_c, double r, double ratio){
     // lambda^2 of soliton solution with r_c in units of 1/m
     double a = 0.228*sqrt(ratio);
     double b = 4.071;
+    // double a = 0.320748*sqrt(ratio);
+    // double b = 4.29637293;
     double factor_half = pow(2,(double)1.0/(2*b)) -1; // factor which defines r_c, the radius where density drops by half
     double lambda2 = factor_half/(a*a*r_c*r_c);
     return lambda2 / pow(1 + factor_half*pow(r/r_c,2), b);
+    // return 1 / pow(1 + pow(a*r,2), b);
 }
 
 vector<double> num_second_derivative(vector<double> & xarr, vector<double> & yarr){

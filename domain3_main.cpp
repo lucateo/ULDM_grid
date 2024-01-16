@@ -322,14 +322,14 @@ void domain3::solveConvDif(){
     if(compare_energy > 0.001 ){
       dt = dt/2;
       count_energy++;
-      if (compare_energy_running < 0.00001 && count_energy > 2 + switch_en_count){
+      if (compare_energy_running < 1E-5 && count_energy > 2 + switch_en_count){
         E_tot_initial = E_tot_running;
         count_energy = 0;
         if (world_rank==0) cout<<"Switch energy "<<switch_en_count <<" --------------------------------------------------------------------------------------------" <<endl;
         switch_en_count++;
       }
     }
-    else if(compare_energy<0.0001 && compare_energy_running>1E-8){
+    else if(compare_energy<1E-5 && compare_energy_running>1E-8){
       dt = dt*1.2; // Less aggressive when increasing the time step, rather than when decreasing it
     }
     else if (compare_energy_running < 1E-8) {

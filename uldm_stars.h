@@ -3,11 +3,16 @@
 #include "uldm_mpi_2field.h"
 #include <boost/multi_array.hpp>
 #include <cmath>
+#include <fstream>
+// In this version, stars do not have feedback on the background potential and they do not feel themselves
+// (so specify their mass is actually not required)
 class domain_stars: public domain3
 {
   protected:
-    double soften_param = 1E-5; // Softening parameter for gravitational law
+    double soften_param = deltaX/10.; // Softening parameter for gravitational law
+    // double soften_param = deltaX/2; // Maybe better putting something related to deltaX?
     multi_array<double,2> stars;
+    ofstream stars_filename;
   public:
     domain_stars(size_t PS,size_t PSS, double L, int nfields, int Numsteps, double DT, int Nout, int Nout_profile, 
             string Outputname, int pointsm, int WR, int WS, int Nghost, bool mpi_flag, int num_stars):
@@ -16,6 +21,7 @@ class domain_stars: public domain3
       { };
     domain_stars() { }; // Default constructor
     ~domain_stars() { };
+
 void put_initial_stars(multi_array<double, 2> input){
   // Input should have, for each star, {mass, x,y,z,vx,vy,vz}
   stars = input;
@@ -37,9 +43,10 @@ vector<double> acceleration_from_point(int i, int j, int k, double x, double y, 
 
 void step_stars(){
   for (int s = 0; s <stars.size(); s++){
-    double x = stars[s][1];
-    double y = stars[s][2];
-    double z = stars[s][3];
+    // Leapfrog second order, ADAPTIVE STEP NOT IMPLEMENTED
+    double x = stars[s][1]+ 0.5*dt*stars[s][4];
+    double y = stars[s][2]+ 0.5*dt*stars[s][5];
+    double z = stars[s][3]+ 0.5*dt*stars[s][6];
     double ax = 0;
     double ay = 0;
     double az = 0;
@@ -63,15 +70,45 @@ void step_stars(){
     else {
       ax_shared=ax; ay_shared=ay; az_shared=az;
     }
-    double vx = stars[s][4]+ax_shared*dt ;
-    double vy = stars[s][5] + ay_shared*dt ;
-    double vz = stars[s][6] + az_shared*dt;
-    stars[s][1] = stars[s][1] + dt*(vx+stars[s][4])/2;
-    stars[s][2] = stars[s][2] + dt*(vy+stars[s][5])/2;
-    stars[s][3] = stars[s][3] + dt*(vz+stars[s][6])/2;
-    stars[s][4] = vx;
-    stars[s][5] = vy;
-    stars[s][6] = vz;
+    stars[s][4] = stars[s][4] -ax_shared*dt ;
+    stars[s][5] = stars[s][5] - ay_shared*dt ;
+    stars[s][6] = stars[s][6] - az_shared*dt ;
+    stars[s][1] = stars[s][1] + dt*stars[s][4]/2;
+    stars[s][2] = stars[s][2] + dt*stars[s][5]/2;
+    stars[s][3] = stars[s][3] + dt*stars[s][6]/2;
+  }
+}
+
+void output_stars(){
+  print2(stars, stars_filename);
+  if(world_rank==0) stars_filename<<"\n"<<","<<flush;
+}
+
+void out_star_backup(){
+    ofstream file_star_backup;
+    file_star_backup.open(outputname+"star_baxkup.txt"); 
+    file_star_backup.setf(ios_base::fixed);
+    int Nx=stars.shape()[0];
+    int Ny=stars.shape()[1];
+    for(int s = 0;s < Nx; s++){
+      for(int l = 0;l < Ny; l++){
+        file_star_backup<< scientific << stars[s][l];
+        if(s!=(Nx-1) || l!=(Nx-1)) //If it is not the last one
+          file_star_backup<< " ";
+      }
+    }
+    file_star_backup.close();
+}
+
+void open_filestars(){
+  if(world_rank==0 && start_from_backup == false){
+    stars_filename.open(outputname+"stars.txt");
+    stars_filename<<"{";   
+    stars_filename.setf(ios_base::fixed);
+  }
+  else if (world_rank==0 && start_from_backup == false){
+    stars_filename.open(outputname+"stars.txt", ios_base::app); 
+    stars_filename.setf(ios_base::fixed);
   }
 }
 
@@ -84,11 +121,14 @@ virtual void solveConvDif(){
     openfiles_backup();
   else
     openfiles();
+  open_filestars();
+
   int stepCurrent=0;
   if (start_from_backup == false){
     tcurrent = 0;
     snapshot(stepCurrent); // I want the snapshot of the initial conditions
-    snapshot_profile(stepCurrent); 
+    snapshot_profile(stepCurrent);
+    output_stars(); 
     // First step, I need its total energy (for adaptive time step, the Energy at 0 does not have the potential energy
     // (Phi is not computed yet), so store the initial energy after one step
     if(world_rank==0){
@@ -122,8 +162,6 @@ virtual void solveConvDif(){
     if(world_rank==0){
       cout<<"current time = "<< tcurrent  << " step " << stepCurrent << " / " << numsteps<<" dt "<<dt<<endl;
       cout<<"elapsed computing time (s) = "<< time(NULL)-beginning<<endl;
-      cout <<"Star 1 position = "<<stars[0][1] << " " << stars[0][2] << " " << stars[0][3] << endl;
-      cout <<"Star 2 position = "<<stars[1][1] << " " << stars[1][2] << " " << stars[1][3] << endl;
     }
     makestep(stepCurrent,dt);
     tcurrent=tcurrent+dt;
@@ -133,27 +171,38 @@ virtual void solveConvDif(){
     for(int i=0;i<nfields;i++){
       etot_current += e_kin_full1(i) + full_energy_pot(i);
     }
-    if (world_rank==0) cout<<"E tot current "<<etot_current<<endl;
+    double compare_energy = abs(etot_current-E_tot_initial)/abs(etot_current + E_tot_initial);
+    double compare_energy_running = abs(etot_current-E_tot_running)/abs(etot_current + E_tot_running);
+    if (world_rank==0) cout<<"E tot current "<<etot_current << " E tot initial " << E_tot_initial << " compare E ratio "<<compare_energy <<endl;
     // Criterium for dropping by half the time step if energy is not conserved well enough
-    if(abs(etot_current-E_tot_initial)/abs(etot_current + E_tot_initial) > 0.001 ){
+    if(compare_energy > 0.001 ){
       dt = dt/2;
-      E_tot_running = etot_current;
       count_energy++;
-      if (abs(etot_current-E_tot_running)/abs(etot_current + E_tot_running) < 0.00001 && count_energy > 2 + switch_en_count){
+      if (compare_energy_running < 1E-5 && count_energy > 2 + switch_en_count){
         E_tot_initial = E_tot_running;
         count_energy = 0;
-        cout<<"Switch energy "<<switch_en_count <<" ---------------------------------------------------" <<endl;
+        if (world_rank==0) cout<<"Switch energy "<<switch_en_count <<" --------------------------------------------------------------------------------------------" <<endl;
         switch_en_count++;
       }
     }
-    else if(abs(etot_current-E_tot_initial)/abs(etot_current +E_tot_initial)<0.0001){
+    else if(compare_energy<1E-5 && compare_energy_running>1E-8){
       dt = dt*1.2; // Less aggressive when increasing the time step, rather than when decreasing it
     }
+    else if (compare_energy_running < 1E-8) {
+      dt = dt*2; // If it remains stuck to an incredibly low dt, try to unstuck it
+      cout<<"Unstucking --------------------------------------------------------------------------------------------------------------------"<<endl;
+    }
+    E_tot_running = etot_current;
+    
     if(stepCurrent%numoutputs==0 || stepCurrent==numsteps) {
       if (mpi_bool==true){ 
         sortGhosts(); // Should be called, to do derivatives in real space
       }
-      snapshot(stepCurrent); 
+      snapshot(stepCurrent);
+      if (world_rank==0){
+        output_stars();
+        out_star_backup();
+      } 
       exportValues(); // for backup purposes
       ofstream phi_final;
       outputfullPhi(phi_final);
@@ -168,9 +217,9 @@ virtual void solveConvDif(){
     }
   }
   closefiles();
+  stars_filename.close();
   cout<<"end"<<endl;
 }
-
 };
 #endif
 
