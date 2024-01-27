@@ -285,3 +285,24 @@ double Fourier::e_kin_FT(multi_array<double,4> &psi, double Length,int nghost, i
   #pragma omp barrier
   return 0.5*tot_en/pow(Nx,6);
 }
+
+//function for the center of mass velocity using the FT
+// note this does not sum up the values on different nodes
+double Fourier::v_center_mass_FT(multi_array<double,4> &psi, double Length,int nghost, int whichPsi, int coordinate){
+  inputpsi(psi,nghost,whichPsi);
+  calculateFT();
+  long double tot_vcm=0;
+  #pragma omp parallel for collapse(3) reduction(+:tot_vcm)
+  for(size_t i=0;i<Nx;i++)
+    for(size_t j=0; j<Nx;j++)
+      for(size_t k=0; k<Nz;k++){
+        size_t ktrue=world_rank*Nz+k;
+        double kx;
+        if (coordinate==0) kx = shift(i,Nx)*2*M_PI/Length;
+        else if(coordinate==1) kx = shift(j,Nx)*2*M_PI/Length;
+        else if(coordinate==2) kx = shift(k,Nx)*2*M_PI/Length;
+        tot_vcm=tot_vcm+kx*(pow(rin[i+Nx*j+Nx*Nx*k][0],2)+ pow(rin[i+Nx*j+Nx*Nx*k][1],2));
+      }
+  #pragma omp barrier
+  return tot_vcm/pow(Nx,6)*pow(Length,3);
+}

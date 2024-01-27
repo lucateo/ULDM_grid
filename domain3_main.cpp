@@ -29,6 +29,7 @@ domain3::domain3(size_t PS,size_t PSS, double L, int n_fields, int Numsteps, dou
   world_size(WS)
   {
     deltaX=Length/PointsS;
+    snapshotcount=0; // snapshot count needed if Grid3D is true
     first_initial_cond = true; // To deal with append modes in initial condition info output file
     for (int i=0; i<n_fields; i++)
       ratio_mass[i]=1; // the first mass ratio is always 1, but initialize everything to one
@@ -102,6 +103,58 @@ double domain3::e_kin_full1(int whichPsi){//Full kinetic energy with Fourier
     totV=locV;
   }
   return totV;
+}
+
+//Finds velocity of the center of mass of field whichPsi. The total velocity of center of mass can be found by 
+// finding the center of mass velocity of center of mass velocities in post-processing.
+double domain3::v_center_mass(int coordinate, int whichF){
+  double mass=total_mass(whichF); 
+  double locV= ratio_mass[whichF]* fgrid.v_center_mass_FT(psi,Length,nghost,whichF, coordinate) / mass;
+  double totV;
+  // gather all the locV for all processes, sums them (MPI_SUM) and returns totV 
+  if(mpi_bool==true){
+    MPI_Allreduce(&locV, &totV, 1, MPI_DOUBLE, MPI_SUM,MPI_COMM_WORLD);
+  }
+  else {
+    totV=locV;
+  }
+  return totV;
+}
+//Finds position of the center of mass of 1 field. The total center of mass can be found by 
+// finding the center of mass of center of masses.
+double domain3::x_center_mass(int coordinate, int whichPsi){
+  double mass=total_mass(whichPsi); 
+  long double totV=0;
+  #pragma omp parallel for collapse(3) reduction(+:totV)
+  for(size_t i=0;i<PointsS;i++)
+    for(size_t j=0;j<PointsS;j++)
+      for(size_t k=nghost;k<PointsSS+nghost;k++){
+        size_t real_k = k-nghost + PointsSS*world_rank;
+        // It computes it around the maximum of density, to hopefully mitigate the periodic boundary problem
+        if(coordinate==0) {
+          int Dd=maxx[whichPsi][0]-(int)i; if(abs(Dd)>PointsS/2){Dd=abs(Dd)-(int)PointsS;} 
+          totV=totV+(pow(psi[2*whichPsi][i][j][k],2)+pow(psi[2*whichPsi+1][i][j][k],2)) * Dd *Length/PointsS;
+        }
+        else if(coordinate==1){ 
+          int Dd=maxx[whichPsi][1]-(int)j; if(abs(Dd)>PointsS/2){Dd=abs(Dd)-(int)PointsS;} 
+          totV=totV+(pow(psi[2*whichPsi][i][j][k],2)+pow(psi[2*whichPsi+1][i][j][k],2)) * Dd *Length/PointsS;
+        }
+        else if(coordinate==2) {
+          int Dd=maxx[whichPsi][2]-(int)real_k; if(abs(Dd)>PointsS/2){Dd=abs(Dd)-(int)PointsS;} 
+          totV=totV+(pow(psi[2*whichPsi][i][j][k],2)+pow(psi[2*whichPsi+1][i][j][k],2)) * Dd *Length/PointsS;
+        }
+      }
+  #pragma omp barrier
+  long double totVshared; // total summed up across all nodes
+  if(mpi_bool==true){
+    MPI_Allreduce(&totV, &totVshared, 1, MPI_LONG_DOUBLE, MPI_SUM,MPI_COMM_WORLD);
+    totVshared=totVshared*pow(Length/PointsS,3) / mass;
+  }
+  else {
+    totVshared=totV*pow(Length/PointsS,3) / mass;
+  }
+  // Add the maximum point to recover the actual point coordinates of the grid
+  return totVshared + maxx[whichPsi][coordinate];
 }
 
 long double domain3::full_energy_kin(int whichPsi){// it computes the kinetic energy of the whole box with derivatives
@@ -223,6 +276,9 @@ void domain3::set_backup_flag(bool bool_backup){//If false, no backup
 void domain3::set_ratio_masses(multi_array<double,1> ratio_masses){//
   ratio_mass = ratio_masses;
 }
+void domain3::set_reduce_grid(int reduce_grid){//
+  reduce_grid_param = reduce_grid;
+}
 void domain3::makestep(double stepCurrent, double tstep){ // makes a step in a dt
   // loop over the 8 values of alpha
   for(int alpha=0;alpha<8;alpha++){
@@ -334,7 +390,8 @@ void domain3::solveConvDif(){
     }
     else if (compare_energy_running < 1E-8) {
       dt = dt*2; // If it remains stuck to an incredibly low dt, try to unstuck it
-      cout<<"Unstucking --------------------------------------------------------------------------------------------------------------------"<<endl;
+      cout<<"Unstucking, count energy " << count_energy << " switch energy count " << switch_en_count 
+        << " --------------------------------------------------------------------------------------------------------------------"<<endl;
     }
     E_tot_running = etot_current;
 
@@ -353,7 +410,7 @@ void domain3::solveConvDif(){
       ofstream phi_final;
       outputfullPhi(phi_final);
       ofstream psi_final;
-      outputfullPsi(psi_final);
+      outputfullPsi(psi_final,true,1);
     }
   }
   closefiles();
@@ -362,7 +419,7 @@ void domain3::solveConvDif(){
 
 
 void domain3::initial_cond_from_backup(){
-  multi_array<double,1> Arr1D(extents[PointsS*PointsS*PointsSS]);
+  // multi_array<double,1> Arr1D(extents[PointsS*PointsS*PointsSS]);
   string outputname_file;
   if(mpi_bool==true){
     outputname_file = outputname + "phi_final_" + to_string(world_rank) + ".txt";
@@ -373,20 +430,31 @@ void domain3::initial_cond_from_backup(){
   ifstream infile(outputname_file);
   string temp;
   double num;
-  size_t l = 0;
+  // size_t l = 0;
+  size_t i = 0; size_t j = 0; size_t k = 0;
   // Get the input from the input file
   while (std::getline(infile, temp, ' ')) {
   // Add to the list of output strings
-  num = stod(temp);
-  Arr1D[l] = num;
-  l++;
-  }
-  for(size_t i =0; i<PointsS; i++)
-    for(size_t j =0; j<PointsS; j++)
-      for(size_t k =0; k<PointsSS; k++){
-        // cout<<i<<endl;
-        Phi[i][j][k] = Arr1D[i+j*PointsS+k*PointsS*PointsS];
+    if(i<PointsS){
+      Phi[i][j][k] = stod(temp);
+      i++;
+    }
+    if(i==PointsS){
+      if(j<PointsS-1) {
+        i=0;
+        j++;
       }
+      else if(j==PointsS-1 && k<PointsSS-1){
+        i=0; j=0; k++;
+      }
+    }
+  }
+  // for(size_t i =0; i<PointsS; i++)
+  //   for(size_t j =0; j<PointsS; j++)
+  //     for(size_t k =0; k<PointsSS; k++){
+  //       // cout<<i<<endl;
+  //       Phi[i][j][k] = Arr1D[i+j*PointsS+k*PointsS*PointsS];
+  //     }
   infile.close();
   if(mpi_bool==true){
     outputname_file = outputname + "psi_final_" + to_string(world_rank) + ".txt";
@@ -395,19 +463,39 @@ void domain3::initial_cond_from_backup(){
     outputname_file = outputname + "psi_final.txt";
   }
   infile = ifstream(outputname_file);
-  l = 0;
-  multi_array<double,1> Arr1Dpsi(extents[PointsS*PointsS*PointsSS*nfields*2]);
+  i=0; j=0; k=0; size_t m =0;
   while (std::getline(infile, temp, ' ')) {
-    // Add to the list of output strings
-    num = stod(temp);
-    Arr1Dpsi[l] = num;
-    l++;
+  // Add to the list of output strings
+    if(i<PointsS){
+      psi[m][i][j][k+nghost] = stod(temp);
+      i++;
+    }
+    if(i==PointsS){
+      if(j<PointsS-1) {
+        i=0;
+        j++;
+      }
+      else if(j==PointsS-1 && k<PointsSS-1){
+        i=0; j=0; k++;
+      }
+      else if(k==PointsSS-1 && j==PointsS-1 ){
+        i=0; j=0; k=0; m++;
+      }
+    }
   }
-  for(size_t m =0; m<nfields*2; m++)
-    for(size_t i =0; i<PointsS; i++)
-      for(size_t j =0; j<PointsS; j++)
-        for(size_t k =0; k<PointsSS; k++){
-          psi[m][i][j][k+nghost] = Arr1Dpsi[i+j*PointsS+k*PointsS*PointsS+m*PointsS*PointsS*PointsSS];
-        }
+  // l = 0;
+  // multi_array<double,1> Arr1Dpsi(extents[PointsS*PointsS*PointsSS*nfields*2]);
+  // while (std::getline(infile, temp, ' ')) {
+  //   // Add to the list of output strings
+  //   num = stod(temp);
+  //   Arr1Dpsi[l] = num;
+  //   l++;
+  // }
+  // for(size_t m =0; m<nfields*2; m++)
+  //   for(size_t i =0; i<PointsS; i++)
+  //     for(size_t j =0; j<PointsS; j++)
+  //       for(size_t k =0; k<PointsSS; k++){
+  //         psi[m][i][j][k+nghost] = Arr1Dpsi[i+j*PointsS+k*PointsS*PointsS+m*PointsS*PointsS*PointsSS];
+  //       }
   infile.close();
 }

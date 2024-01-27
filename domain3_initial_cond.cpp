@@ -40,6 +40,7 @@ void domain3::initial_waves(int whichF){
 
 void domain3::setInitialSoliton_1(double r_c, int whichpsi){ // sets 1 soliton in the center of the grid as initial condition, for field whichpsi
   int center = (int) PointsS / 2; // The center of the grid, more or less
+  // int center = 20; // The center of the grid, more or less
   int extrak= PointsSS*world_rank -nghost; // Take into account the node where you are. If mpi==false, world rank and nghost are initialized to 0
   double ratio = ratio_mass[whichpsi]; //
   if (first_initial_cond == true){ 
@@ -54,8 +55,9 @@ void domain3::setInitialSoliton_1(double r_c, int whichpsi){ // sets 1 soliton i
         for(int k=nghost; k<PointsSS+nghost;k++){
           // Distance from the center of the soliton
           double radius = deltaX * sqrt( pow( abs(i - center),2) + pow( abs(j - center),2) + pow( abs(k + extrak - center),2));
-          psi[2*whichpsi][i][j][k] += psi_soliton(r_c, radius, ratio);
-          // psi[2*whichpsi+1][i][j][k] = 0; // Set the imaginary part to zero
+          // double phase = deltaX * (0.1 * i + 0.3 * j - 0.05*(k+extrak));
+          psi[2*whichpsi][i][j][k] += psi_soliton(r_c, radius, ratio) ;
+          psi[2*whichpsi+1][i][j][k] = 0; 
         }
       }
     }
@@ -189,6 +191,17 @@ void domain3::setManySolitons_deterministic(double r_c, int num_sol, int whichF)
     y[i]= center + (int) round(y_phys[i] / deltaX);
     z[i]= center + (int) round(z_phys[i] / deltaX);
   }
+  if(world_rank==0){
+    if (first_initial_cond == true){ 
+      info_initial_cond.open(outputname+"initial_cond_info.txt");
+      first_initial_cond = false;
+    }
+    else info_initial_cond.open(outputname+"initial_cond_info.txt", ios_base::app);
+    info_initial_cond.setf(ios_base::fixed);
+    info_initial_cond<<"deterministic"; 
+    info_initial_cond<<" "<< r_c << " " <<num_sol << " " << ratio_mass[whichF] << endl;
+    info_initial_cond.close();
+  }
   double ratio = ratio_mass[whichF];
   #pragma omp parallel for collapse(3) //not sure whether this is parallelizable
     for(int i=0;i<PointsS;i++){
@@ -258,6 +271,35 @@ void domain3::set_theta(double Nparts, int whichF){
   }
 }
 
+// sets |psi|^2 = norm*Exp(-(x/a_e)^2 - (y/b_e)^2 - (z/c_e)^2), for field whichPsi
+void domain3::setEllitpicCollapse(double norm, double a_e, double b_e, double c_e, int whichPsi){ 
+  int center = (int) PointsS / 2; // The center of the grid, more or less
+  int extrak= PointsSS*world_rank -nghost; // Take into account the node where you are. If mpi==false, world rank and nghost are initialized to 0
+  // double ratio = ratio_mass[whichpsi]; //
+  if (world_rank == 0){
+    if (first_initial_cond == true){ 
+      info_initial_cond.open(outputname+"initial_cond_info.txt");
+      first_initial_cond = false;
+    }
+    else info_initial_cond.open(outputname+"initial_cond_info.txt", ios_base::app);
+    info_initial_cond<<"Elliptic_Collapse " << norm << " " << a_e << " " << b_e << " " << c_e << " " << ratio_mass[whichPsi] << endl;
+  }
+  #pragma omp parallel for collapse(3) //not sure whether this is parallelizable
+    for(int i=0;i<PointsS;i++){
+      for(int j=0; j<PointsS;j++){
+        for(int k=nghost; k<PointsSS+nghost;k++){
+          // Distance from the center of the soliton
+          double exponent = deltaX*deltaX * (pow( abs(i - center)/a_e,2)/2 + pow( abs(j - center)/b_e,2)/2 
+              + pow( abs(k + extrak - center)/c_e,2)/2);
+          psi[2*whichPsi][i][j][k] += sqrt(norm)*exp(-exponent);
+          // psi[2*whichpsi+1][i][j][k] = 0; // Set the imaginary part to zero
+        }
+      }
+    }
+  #pragma omp barrier
+}
+
+// NEEDS SERIOUS DEBUGGING
 void domain3::set_initial_from_file(string filename_in, string filename_vel){
   multi_array<double,1> Arr1D(extents[nfields*PointsS*PointsS*PointsSS]);
   ifstream infile(filename_in);
@@ -292,6 +334,7 @@ void domain3::set_initial_from_file(string filename_in, string filename_vel){
       fgrid.calculateIFT();                                        //calculates the inverse FT
       // Put it in psi arr to spare memory. FT and IFT should be linear, so I
       // just add k_x*v_x(k) + k_y*v_y(k) + k_z*v_z(k)
+      // The imaginary part of psi array should all be close to zero, since we are doing Fourier transform of a real quantity
       fgrid.transferpsi_add(psi,1./pow(PointsS,3),nghost,whichF);   //divides it by 1/PS^3 (to get the correct normalizaiton of the FT)
     }
   }
@@ -318,10 +361,12 @@ void domain3::set_initial_from_file(string filename_in, string filename_vel){
         }
 }
 
-void domain3::setEddington(Eddington *eddington, int numpoints, double radmin, double radmax, int fieldid, double ratiomass, int num_k, bool simplify_k){
+void domain3::setEddington(Eddington *eddington, int numpoints, double radmin, double radmax, int fieldid, 
+  double ratiomass, int num_k, bool simplify_k, int center_x, int center_y,int center_z){
   // If simplify_k is true, then it inserts the random phases as gaussians on |k|; if false, then it inserts the random phases
   // in every \vec{k} point. num_k is the total number of k points you run the nested loop over (to speed up computation), put 16 or 32
-  if (eddington->analytic_Eddington == false){ // If the profile does not have analytic formulas for f(E), compute it numerically
+  // If the profile does not have analytic formulas for f(E), and potential profile \neq density profile, compute it numerically
+  if (eddington->analytic_Eddington == false || eddington->same_profile_den_pot ==false){ 
     eddington->compute_d2rho_dpsi2_arr(numpoints, radmin, radmax);
     eddington->compute_fE_arr();
     cout<<"Finished computing numeric f(E) for Eddington initial conditions"<<endl;
@@ -334,10 +379,10 @@ void domain3::setEddington(Eddington *eddington, int numpoints, double radmin, d
       }
     }
   }
-  Profile *profile = eddington->get_profile();
+  Profile *profile = eddington->get_profile_pot();
+  Profile *profile_den = eddington->get_profile_den();
   srand(time(NULL)); // Initialize the random seed for random phases
   
-  int center = int(PointsS/2);
   int extrak= PointsSS*world_rank -nghost; // Take into account the node where you are
   
   // Maximum kmax for phases initialization
@@ -361,7 +406,17 @@ void domain3::setEddington(Eddington *eddington, int numpoints, double radmin, d
     for(int i = 0; i < profile->params.size(); i++){
       info_initial_cond<<" "<<profile->params_name[i]<<" "<<profile->params[i];
     } 
-    info_initial_cond<<" ratio_mass "<< ratiomass << " " << num_k << " " <<simplify_k <<endl;
+    info_initial_cond<<" ratio_mass "<< ratiomass << " " << num_k << " " <<simplify_k << " " << center_x
+        << " " << center_y << " " << center_z;
+    
+    //If the density profile does not fully source the potential, print information about it as well
+    if(eddington->same_profile_den_pot==false){
+      info_initial_cond<<" " << profile_den->name_profile <<"__density";
+      for(int i = 0; i < profile_den->params.size(); i++){
+        info_initial_cond<<" "<<profile_den->params_name[i]<<" "<<profile_den->params[i];
+      } 
+    }
+    info_initial_cond<<endl;
     info_initial_cond.close();
     cout<< "kmax global for Eddington initial conditions: "<< kmax_global<<" "<< sqrt(2*profile->Psi(radmin)) *ratiomass* Length/(2*M_PI)  <<endl;
   }
@@ -417,7 +472,10 @@ void domain3::setEddington(Eddington *eddington, int numpoints, double radmin, d
           // check_index++;
         }
         // f(E) is defined up to a minimum energy given by radmin, ensure you do not go below it
-        double distance = max(Length/PointsS *sqrt( pow(i-center,2) + pow(j-center,2) + pow(k+extrak-center,2)), radmin);
+        double Dx = i-center_x;if(abs(Dx)>PointsS/2){Dx=abs(Dx)-(int)PointsS;} // workaround which takes into account the periodic boundary conditions
+        double Dy = j-center_y;if(abs(Dy)>PointsS/2){Dy=abs(Dy)-(int)PointsS;} // workaround which takes into account the periodic boundary conditions
+        double Dz = k+extrak-center_z;if(abs(Dz)>PointsS/2){Dz=abs(Dz)-(int)PointsS;} // workaround which takes into account the periodic boundary conditions
+        double distance = max(Length/PointsS *sqrt( pow(Dx,2) + pow(Dy,2) + pow(Dz,2)), radmin);
         
         // ceil rounds up to nearest integer; this is the "local" maximum k, given Psi(r)
         // int kmax = min(int(PointsS/2), int(ceil(sqrt(2*profile->Psi(distance)) * Length/(2*M_PI) ) ));

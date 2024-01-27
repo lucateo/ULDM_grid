@@ -119,15 +119,15 @@ void print3_cpp(multi_array<T,3> & v1,  U & filename){
     }
 }
 template<class T, class U> //Outputs the full psi with the n fields
-void print4_cpp(multi_array<T,4> & v1,  U & filename, int nghost){
+void print4_cpp(multi_array<T,4> & v1,  U & filename, int nghost, int reduce_grid=1){
   int Nl = v1.shape()[0]; //Dimension along the first argument (2*nfields)
   int Nx=v1.shape()[1];
   int Ny=v1.shape()[2];
   int Nz=v1.shape()[3]; //Nz contains the 2*nghost cells
   for(int l=0;l<Nl;l++){
-    for(int k = nghost;k < Nz-nghost; k++){
-      for(int j = 0;j < Nx; j++){
-        for(int i = 0;i < Nx; i++){
+    for(int k = nghost;k < Nz-nghost; k=k+reduce_grid){
+      for(int j = 0;j < Nx; j=j+reduce_grid) {
+        for(int i = 0;i < Nx; i=i+reduce_grid) {
           filename<< scientific << v1[l][i][j][k];
           if(l!=(Nl-1) || k!=(Nz-nghost-1) || j!=(Ny-1) || i!=(Nx-1)) //If it is not the last one
             filename<< " ";
@@ -216,6 +216,9 @@ class Fourier{
     //function for the total kinetic energy using the FT
     // note this does not sum up the values on different nodes
     double e_kin_FT(multi_array<double,4> &psi, double Length,int nghost, int whichPsi);
+    //function for the center of mass velocity using the FT
+    // note this does not sum up the values on different nodes
+    double v_center_mass_FT(multi_array<double,4> &psi, double Length,int nghost, int whichPsi, int coordinate);
 };
 
 
@@ -253,7 +256,8 @@ class domain3{
     ofstream timesfile_profile;  //output file for useful information (total energies etc.)
     ofstream info_initial_cond;  //output file for initial condition details
     bool first_initial_cond; // Starts from true, it becomes false when you insert an initial condition; to change to append mode on info_initial_condition file (when false)
-    int snapshotcount=0;          //variable to number the snapshots
+    int snapshotcount=0;          //variable to number the snapshots if Grid3D is true
+    int reduce_grid_param=1;
     bool Grid3D = false; // If true, it outputs the full density on the 3D grid; if false (recommended), it outputs the 2D projection of the density profile
     bool phaseGrid = false; // If true, it outputs the phase slice passing on the center
     bool start_from_backup = false; // If true, starts from the backup files
@@ -277,6 +281,13 @@ class domain3{
       ~domain3(); //destructor
       long double psisqmean(int whichPsi);
       double total_mass(int whichPsi);
+      //Finds position of the center of mass of field whichPsi. The total center of mass can be found by 
+      // finding the center of mass of center of masses in post-processing.
+      double x_center_mass(int coordinate, int whichPsi);
+      //Finds velocity of the center of mass of field whichPsi. The total velocity of center of mass can be found by 
+      // finding the center of mass velocity of center of mass velocities in post-processing.
+      double v_center_mass(int coordinate, int whichPsi);
+      //Full kinetic energy with Fourier
       // note k is counted including ghosts
       double energy_kin(const int & i, const int & j, const int & k, int whichPsi);
       // it computes the potential energy density at grid point (i,j,k)
@@ -295,6 +306,7 @@ class domain3{
       void set_grid_phase(bool bool_phase);//If false, domain3 does not output the phase slice
       void set_backup_flag(bool bool_backup);//If false, no backup
       void set_ratio_masses(multi_array<double,1> ratio_mass);//Sets the ratio between the masses of the ULDM wrt field 0
+      void set_reduce_grid(int reduce_grid);
       virtual void makestep(double stepCurrent, double tstep);
       virtual void solveConvDif();
       // Notice that you should call the backup from a run which uses the SAME number of cores in mpi processes
@@ -307,8 +319,8 @@ class domain3{
       void outputfulldensity(ofstream& fileout,int whichPsi);
       // Outputs the full 3D phi, for backup purposes
       void outputfullPhi(ofstream& fileout);
-      // Outputs the full 4D psi, every field, for backup purposes
-      void outputfullPsi(ofstream& fileout);
+      // Outputs the full 4D psi, every field, for backup purposes; if backup=false, then outputs for snapshots
+      void outputfullPsi(ofstream& fileout, bool backup, int reduce_grid);
       // Virtual because for the NFW case (for example) you want to compute radial functions starting from the center of the box and not the maximum
       virtual multi_array<double,2> profile_density(int whichPsi);
       void snapshot(double stepCurrent);
@@ -341,8 +353,12 @@ class domain3{
       void set_delta(double Npart, int whichPsi);
       // Sets Heaviside in Fourier space initial conditions
       void set_theta(double Npart, int whichPsi);
-      void set_initial_from_file(string filename_in, string filename_vel); // Use a file with density and velocity at each grid point to be implemented in the grid
-      void setEddington(Eddington *eddington, int numpoints, double radmin, double radmax, int fieldid, double ratiomass, int num_k, bool simplify_k);
+      // sets |psi|^2 = norm*Exp(-(x/a_e)^2 - (y/b_e)^2 - (z/c_e)^2), for field whichPsi
+      void setEllitpicCollapse(double norm, double a_e, double b_e, double c_e, int whichPsi);
+      // Use a file with density and velocity at each grid point to be implemented in the grid
+      void set_initial_from_file(string filename_in, string filename_vel); 
+      void setEddington(Eddington *eddington, int numpoints, double radmin, double radmax, int fieldid, 
+          double ratiomass, int num_k, bool simplify_k, int center_x, int center_y, int center_z);
 
        // functions below not adapted for MPI yet
  /*

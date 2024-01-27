@@ -207,7 +207,7 @@ virtual void solveConvDif(){
       ofstream phi_final;
       outputfullPhi(phi_final);
       ofstream psi_final;
-      outputfullPsi(psi_final);
+      outputfullPsi(psi_final,true,1);
     }
     if(stepCurrent%numoutputs_profile==0 || stepCurrent==numsteps) {
       if (mpi_bool==true){ 

@@ -11,18 +11,13 @@
 # Example: a run of one field with a box of 128^3 points, whose length is 100 in grid units, initial dt=0.1, with 1000 time steps, snapshot of profile every 20 timesteps, snapshot of projected density every 40 timesteps, initial condition corresponding to stars_soliton, which does not start from a backup run 
 #1 128 100 0.1 1000 20 40 stars_soliton false 
 #
-#
-2 128 100 0.1 1000 20 20 eddington_nfw_soliton false
-#
-#
 # The second line specify the parameters of the initial condition chosen, in this example, rc =5 and Nstars =100
-#
-#
-5 20 0.001 4 8
-#
+#5 100
 # 
 # The third line are hyperparameters like the option for mpi, etc.; order:
-# mpi, set3Dgrid, outputPhase
-#
-#
-0 0 0
+#if mpi=1, sets the grid for mpi; if set3Dgrid=1, sets the output to be the full psi field, instead of just projected density, with resolution reduced by a factor reduce_grid; if outputPhase=1, it outputs a slice of the phase field
+#nfields, Nx, L, dt, Nsteps, outN, outN_profile, name, backup
+1 64 100 0.01 5000 100 100 elliptCollapse false
+0.01 3 3.5 3.2 1
+# mpi, set3Dgrid, outputPhase, reduce_grid
+1 0 0 1
