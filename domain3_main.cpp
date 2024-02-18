@@ -2,13 +2,15 @@
 #include <boost/multi_array/multi_array_ref.hpp>
 #include <iostream>
 #include <ostream>
+#include <vector>
 
 domain3::domain3(size_t PS,size_t PSS, double L, int n_fields, int Numsteps, double DT, int Nout, int Nout_profile, 
-    string Outputname, int pointsm, int WR, int WS, int Nghost, bool mpi_flag):
+    int pointsm, int WR, int WS, int Nghost, bool mpi_flag):
   nghost(Nghost),
   mpi_bool(mpi_flag),
   nfields(n_fields),
   psi(extents[n_fields*2][PS][PS][PSS+2*Nghost]), //real and imaginary parts are stored consequently, i.e. psi[0]=real part psi1 and psi[1]=imaginary part psi1, then the same for psi2
+  psi_backup(extents[n_fields*2][PS][PS][PSS]), //backup which will be used if spectrum energy bool is true
   Phi(extents[PS][PS][PSS]),
   ratio_mass(extents[n_fields]),
   fgrid(PS,PSS,WR,WS, mpi_flag), // class for Fourier trasform, defined above
@@ -22,7 +24,7 @@ domain3::domain3(size_t PS,size_t PSS, double L, int n_fields, int Numsteps, dou
   pointsmax(pointsm),
   numoutputs(Nout), //outputs animation every Nout steps
   numoutputs_profile(Nout_profile), // outputs profile radially averaged every Nout_profile steps
-  outputname(Outputname),
+  outputname("out_"), // A default output name, to be changed with set_output_name function
   maxx(extents[n_fields][3]), // maxx, y,z of the n_fields fields, initialized to zero to avoid overflow
   maxdensity(extents[n_fields]), // maxdensity of the fields
   world_rank(WR),
@@ -276,9 +278,19 @@ void domain3::set_backup_flag(bool bool_backup){//If false, no backup
 void domain3::set_ratio_masses(multi_array<double,1> ratio_masses){//
   ratio_mass = ratio_masses;
 }
+void domain3::set_adaptive_dt_flag(bool flag_adaptive){//
+  adaptive_timestep = flag_adaptive;
+}
 void domain3::set_reduce_grid(int reduce_grid){//
   reduce_grid_param = reduce_grid;
 }
+void domain3::set_spectrum_flag(bool spect){//
+  spectrum_bool = spect;
+}
+void domain3::set_output_name(string name){//
+  outputname = name;
+}
+
 void domain3::makestep(double stepCurrent, double tstep){ // makes a step in a dt
   // loop over the 8 values of alpha
   for(int alpha=0;alpha<8;alpha++){
@@ -326,11 +338,26 @@ void domain3::solveConvDif(){
   else
     openfiles();
   int stepCurrent=0;
+  double t_spectrum;
+  vector<vector<double>> spectrum_vector; 
   if (world_rank==0) cout<< "File name of the run " << outputname << endl;
   if (start_from_backup == false){
     tcurrent = 0;
     snapshot(stepCurrent); // I want the snapshot of the initial conditions
     snapshot_profile(stepCurrent); 
+    t_spectrum = tcurrent; // The time at which computes the energy spectrum
+    if(spectrum_bool == true){
+      #pragma omp parallel for collapse(4)
+      for(int l = 0; l < 2*nfields; l++)
+        for(size_t i=0;i<PointsS;i++)
+          for(size_t j=0; j<PointsS;j++)
+            for(size_t k=nghost; k<PointsSS+nghost;k++){
+              // psi_backup has no ghosts
+              psi_backup[l][i][j][k-nghost]= psi[l][i][j][k];
+            }
+      #pragma omp barrier
+      spectrum_output(spectrum_vector,stepCurrent, t_spectrum, tcurrent);
+    }
     // First step, I need its total energy (for adaptive time step, the Energy at 0 does not have the potential energy
     // (Phi is not computed yet), so store the initial energy after one step
     if(world_rank==0){
@@ -340,6 +367,18 @@ void domain3::solveConvDif(){
     makestep(stepCurrent,dt);
     tcurrent=tcurrent+dt;
     stepCurrent=stepCurrent+1;
+    
+    if(spectrum_bool == true)
+      spectrum_output(spectrum_vector,stepCurrent, t_spectrum, tcurrent);
+    
+    if (mpi_bool==true){ 
+      sortGhosts(); // Should be called, to do derivatives in real space
+    }
+    exportValues(); // for backup purposes
+    ofstream phi_final;
+    outputfullPhi(phi_final);
+    ofstream psi_final;
+    outputfullPsi(psi_final,true,1);
   }
   else if (start_from_backup == true){
     ifstream infile(outputname+"runinfo.txt");
@@ -351,6 +390,19 @@ void domain3::solveConvDif(){
       // else if(i==5)
       //   dt=stod(temp);
       i++;
+    }
+    double t_spectrum = tcurrent; // The time at which computes the energy spectrum
+    if(spectrum_bool == true){
+      #pragma omp parallel for collapse(4)
+      for(int l = 0; l < 2*nfields; l++)
+        for(size_t i=0;i<PointsS;i++)
+          for(size_t j=0; j<PointsS;j++)
+            for(size_t k=nghost; k<PointsSS+nghost;k++){
+              // psi_backup has no ghosts
+              psi_backup[l][i][j][k-nghost]= psi[l][i][j][k];
+            }
+      #pragma omp barrier
+      spectrum_output(spectrum_vector,stepCurrent, t_spectrum, tcurrent);
     }
   }
   E_tot_initial = 0; // The very initial energy
@@ -367,39 +419,59 @@ void domain3::solveConvDif(){
     makestep(stepCurrent,dt);
     tcurrent=tcurrent+dt;
     stepCurrent=stepCurrent+1;
+    if (spectrum_bool==true){
+      spectrum_output(spectrum_vector,stepCurrent, t_spectrum, tcurrent);
+    }
     double etot_current = 0;
     for(int i=0;i<nfields;i++){
       etot_current += e_kin_full1(i) + full_energy_pot(i);
     }
-    double compare_energy = abs(etot_current-E_tot_initial)/abs(etot_current + E_tot_initial);
-    double compare_energy_running = abs(etot_current-E_tot_running)/abs(etot_current + E_tot_running);
-    if (world_rank==0) cout<<"E tot current "<<etot_current << " E tot initial " << E_tot_initial << " compare E ratio "<<compare_energy <<endl;
-    // Criterium for dropping by half the time step if energy is not conserved well enough
-    if(compare_energy > 0.001 ){
-      dt = dt/2;
-      count_energy++;
-      if (compare_energy_running < 1E-5 && count_energy > 2 + switch_en_count){
-        E_tot_initial = E_tot_running;
-        count_energy = 0;
-        if (world_rank==0) cout<<"Switch energy "<<switch_en_count <<" --------------------------------------------------------------------------------------------" <<endl;
-        switch_en_count++;
+    if(adaptive_timestep==true){
+      double compare_energy = abs(etot_current-E_tot_initial)/abs(etot_current + E_tot_initial);
+      double compare_energy_running = abs(etot_current-E_tot_running)/abs(etot_current + E_tot_running);
+      if (world_rank==0) cout<<"E tot current "<<etot_current << " E tot initial " << E_tot_initial << " compare E ratio "<<compare_energy <<endl;
+      // Criterium for dropping by half the time step if energy is not conserved well enough
+      if(compare_energy > 0.001 ){
+        dt = dt/2;
+        count_energy++;
+        if (compare_energy_running < 1E-6 && count_energy > 2 + 2*switch_en_count){
+          E_tot_initial = E_tot_running;
+          count_energy = 0;
+          if (world_rank==0) cout<<"Switch energy "<<switch_en_count <<" --------------------------------------------------------------------------------------------" <<endl;
+          switch_en_count++;
+        }
       }
+      else if(compare_energy<1E-6 && compare_energy_running>1E-9){
+        dt = dt*1.2; // Less aggressive when increasing the time step, rather than when decreasing it
+      }
+      else if (compare_energy_running < 1E-9) {
+        dt = dt*1.5; // If it remains stuck to an incredibly low dt, try to unstuck it
+        cout<<"Unstucking, count energy " << count_energy << " switch energy count " << switch_en_count 
+          << " --------------------------------------------------------------------------------------------------------------------"<<endl;
+      }
+      E_tot_running = etot_current;
     }
-    else if(compare_energy<1E-5 && compare_energy_running>1E-8){
-      dt = dt*1.2; // Less aggressive when increasing the time step, rather than when decreasing it
-    }
-    else if (compare_energy_running < 1E-8) {
-      dt = dt*2; // If it remains stuck to an incredibly low dt, try to unstuck it
-      cout<<"Unstucking, count energy " << count_energy << " switch energy count " << switch_en_count 
-        << " --------------------------------------------------------------------------------------------------------------------"<<endl;
-    }
-    E_tot_running = etot_current;
-
     if(stepCurrent%numoutputs==0 || stepCurrent==numsteps) {
       if (mpi_bool==true){ 
         sortGhosts(); // Should be called, to do derivatives in real space
       }
-      snapshot(stepCurrent); 
+      snapshot(stepCurrent);
+      if(spectrum_bool == true ) { 
+        t_spectrum = tcurrent; // Changes the time at which spectrum is computed 
+        #pragma omp parallel for collapse(4)
+        for(int l = 0; l < 2*nfields; l++)
+          for(size_t i=0;i<PointsS;i++)
+            for(size_t j=0; j<PointsS;j++)
+              for(size_t k=nghost; k<PointsSS+nghost;k++){
+                // psi_backup has no ghosts
+                psi_backup[l][i][j][k-nghost]= psi[l][i][j][k];
+              }
+        #pragma omp barrier
+        // I want the integral also at time difference zero
+        spectrum_write(spectrum_vector);
+        spectrum_vector.clear();
+        spectrum_output(spectrum_vector, stepCurrent, t_spectrum, tcurrent);
+      }
     }
     if(stepCurrent%numoutputs_profile==0 || stepCurrent==numsteps) {
       if (mpi_bool==true){ 

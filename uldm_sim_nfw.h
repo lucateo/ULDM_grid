@@ -14,12 +14,13 @@ class domain_ext: public domain3
 {public:
   Profile * profile;
   domain_ext(size_t PS,size_t PSS, double L, int nfields, int Numsteps, double DT, int Nout, int Nout_profile, 
-          string Outputname, int pointsm, int WR, int WS, int Nghost, bool mpi_flag, Profile *profile_):
+          int pointsm, int WR, int WS, int Nghost, bool mpi_flag):
     domain3{PS, PSS, L, nfields, Numsteps, DT, Nout, Nout_profile, 
-           Outputname, pointsm, WR, WS, Nghost, mpi_flag},
-    profile(profile_) {};
+           pointsm, WR, WS, Nghost, mpi_flag} {};
   domain_ext() { }; // Default constructor
   ~domain_ext() { };
+
+void set_profile(Profile * Profile) { profile = Profile;}
 
 // psi -> exp(-i tstep d_alpha (Phi + Phi_ext)) psi; does a step forward or with the opposite sign by changing the sign of tstep
 virtual void expiPhi(double tstep, double da, int whichPsi){

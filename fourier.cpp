@@ -151,6 +151,21 @@ void Fourier::input_arr(multi_array<double,1> &arr1d, int whichfield, int which_
   }
 }
 
+void Fourier::add_phases(){
+  size_t i,j,k;
+  #pragma omp parallel for collapse(3)
+  for(i=0;i<Nx;i++){
+    for(j=0; j<Nx;j++){
+      for(k=0; k<Nz;k++){
+        double phase = fRand(0, 2*M_PI);
+        rin[i+Nx*j+Nx*Nx*k][0]=rin[i+Nx*j+Nx*Nx*k][0]*cos(phase) ;
+        rin[i+Nx*j+Nx*Nx*k][1]= rin[i+Nx*j+Nx*Nx*k][1]*sin(phase) ;
+      }
+    }
+  }
+  #pragma omp barrier
+}
+
 void Fourier::kfactor_vel(double Length,double r, int which_coord){
   // I have to distinguish between the two fields, field 1 has the mass ratio r attached
   size_t i,j,k;

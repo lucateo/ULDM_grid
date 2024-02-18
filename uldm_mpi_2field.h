@@ -184,6 +184,8 @@ class Fourier{
     void calculateIFT();
     // A sample grid for testing purposes
     void inputsamplegrid();
+    // Adds random phases to the already inserted rin array
+    void add_phases();
     // Insert on initial conditions the Levkov waves
     void inputSpectrum(double Length, double Npart, double r);
     // Insert on initial conditions the delta in Fourier space
@@ -228,6 +230,7 @@ class Fourier{
 class domain3{
   protected:
     multi_array<double,4> psi;  // contains the n fields
+    multi_array<double, 4> psi_backup; // It is used in the case one sets spectrum_bool to true to compute the energy spectrum
     int nghost;                 // number of ghost layers above and below in the z direction
     bool mpi_bool; // If true, the domain is distributed over MPI
     int nfields;                 // number of fields
@@ -255,12 +258,17 @@ class domain3{
     ofstream timesfile_grid;  //output file for grid
     ofstream timesfile_profile;  //output file for useful information (total energies etc.)
     ofstream info_initial_cond;  //output file for initial condition details
+    ofstream spectrum_energy; //output file for spectrum energy
+
     bool first_initial_cond; // Starts from true, it becomes false when you insert an initial condition; to change to append mode on info_initial_condition file (when false)
     int snapshotcount=0;          //variable to number the snapshots if Grid3D is true
     int reduce_grid_param=1;
     bool Grid3D = false; // If true, it outputs the full density on the 3D grid; if false (recommended), it outputs the 2D projection of the density profile
     bool phaseGrid = false; // If true, it outputs the phase slice passing on the center
     bool start_from_backup = false; // If true, starts from the backup files
+    bool adaptive_timestep = true; // If true, uses adaptive timesteps
+    bool spectrum_bool = false; // If true, outputs the energy spectrum from Levkov
+
     int pointsmax =0;
     multi_array<int, 2> maxx;       //location x,y,z of the max density in the grid (for a certain field)
     int maxNode=0;    // node that the maximum value is on
@@ -276,7 +284,7 @@ class domain3{
     public:
       /////////////////// The following defined in domain3_main.cpp /////////////////////
       domain3(size_t PS,size_t PSS, double L, int nfields, int Numsteps, double DT, int Nout, int Nout_profile, 
-          string Outputname, int pointsm, int WR, int WS, int Nghost, bool mpi_flag);
+          int pointsm, int WR, int WS, int Nghost, bool mpi_flag);
       domain3 (); //default constructor
       ~domain3(); //destructor
       long double psisqmean(int whichPsi);
@@ -305,8 +313,11 @@ class domain3{
       void set_grid(bool grid_bool);//If false, domain3 outputs only the 2D sliced density profile
       void set_grid_phase(bool bool_phase);//If false, domain3 does not output the phase slice
       void set_backup_flag(bool bool_backup);//If false, no backup
+      void set_adaptive_dt_flag(bool bool_dt_adaptive);//If true, uses adaptive timestep. Default is true
       void set_ratio_masses(multi_array<double,1> ratio_mass);//Sets the ratio between the masses of the ULDM wrt field 0
       void set_reduce_grid(int reduce_grid);
+      void set_spectrum_flag(bool spect);// Sets the computation of the energy spectrum
+      void set_output_name(string name);//Set the outputname
       virtual void makestep(double stepCurrent, double tstep);
       virtual void solveConvDif();
       // Notice that you should call the backup from a run which uses the SAME number of cores in mpi processes
@@ -325,6 +336,10 @@ class domain3{
       virtual multi_array<double,2> profile_density(int whichPsi);
       void snapshot(double stepCurrent);
       void snapshot_profile(double stepCurrent);
+      // Stores in spectrum_vect quantities relevant for spectrum energy computation
+      void spectrum_output(vector<vector<double>> &spectrum_vect, double stepCurrent, double tin, double tcurr);
+      // Writes the energy spectrum on file
+      void spectrum_write(vector<vector<double>> &spectrum_vect);
       // Outputs the projected 2D column density, every field
       void outputSlicedDensity(ofstream& fileout);
       // Outputs a 2D slice of the phase
@@ -354,7 +369,7 @@ class domain3{
       // Sets Heaviside in Fourier space initial conditions
       void set_theta(double Npart, int whichPsi);
       // sets |psi|^2 = norm*Exp(-(x/a_e)^2 - (y/b_e)^2 - (z/c_e)^2), for field whichPsi
-      void setEllitpicCollapse(double norm, double a_e, double b_e, double c_e, int whichPsi);
+      void setEllitpicCollapse(double norm, double a_e, double b_e, double c_e, int whichPsi, int random);
       // Use a file with density and velocity at each grid point to be implemented in the grid
       void set_initial_from_file(string filename_in, string filename_vel); 
       void setEddington(Eddington *eddington, int numpoints, double radmin, double radmax, int fieldid, 

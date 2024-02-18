@@ -174,6 +174,7 @@ void domain3::setManySolitons_same_radius(int num_Sol, double r_c, double length
   }
 }
 
+
 void domain3::setManySolitons_deterministic(double r_c, int num_sol, int whichF){
 // sets num_sol solitons (maximum of 30 solitons allowed)
 // as initial condition, with same core radius, with fixed positions (chosen randomly), for testing purposes
@@ -217,6 +218,7 @@ void domain3::setManySolitons_deterministic(double r_c, int num_sol, int whichF)
     }
 }
 
+
 void domain3::set_waves_Levkov(double Nparts, int whichF){
   // Sets waves initial conditions a la Levkov, Nparts is number of particles, for the various fields
   fgrid.inputSpectrum(Length, Nparts, ratio_mass[whichF]);
@@ -234,6 +236,7 @@ void domain3::set_waves_Levkov(double Nparts, int whichF){
     info_initial_cond.close();
   }
 }
+
 
 void domain3::set_delta(double Nparts, int whichF){
   // Sets delta in Fourier space initial conditions, Nparts is number of particles, for the various fields
@@ -271,8 +274,8 @@ void domain3::set_theta(double Nparts, int whichF){
   }
 }
 
-// sets |psi|^2 = norm*Exp(-(x/a_e)^2 - (y/b_e)^2 - (z/c_e)^2), for field whichPsi
-void domain3::setEllitpicCollapse(double norm, double a_e, double b_e, double c_e, int whichPsi){ 
+// sets |psi|^2 = norm*Exp(-(x/a_e)^2 - (y/b_e)^2 - (z/c_e)^2), for field whichPsi; if random is 1, insert random phases in Fourier space
+void domain3::setEllitpicCollapse(double norm, double a_e, double b_e, double c_e, int whichPsi, int random){ 
   int center = (int) PointsS / 2; // The center of the grid, more or less
   int extrak= PointsSS*world_rank -nghost; // Take into account the node where you are. If mpi==false, world rank and nghost are initialized to 0
   // double ratio = ratio_mass[whichpsi]; //
@@ -282,22 +285,45 @@ void domain3::setEllitpicCollapse(double norm, double a_e, double b_e, double c_
       first_initial_cond = false;
     }
     else info_initial_cond.open(outputname+"initial_cond_info.txt", ios_base::app);
-    info_initial_cond<<"Elliptic_Collapse " << norm << " " << a_e << " " << b_e << " " << c_e << " " << ratio_mass[whichPsi] << endl;
+    info_initial_cond<<"Elliptic_Collapse " << norm << " " << a_e << " " << b_e << " " << c_e << " " << ratio_mass[whichPsi] << " " << random << endl;
   }
   #pragma omp parallel for collapse(3) //not sure whether this is parallelizable
     for(int i=0;i<PointsS;i++){
       for(int j=0; j<PointsS;j++){
         for(int k=nghost; k<PointsSS+nghost;k++){
-          // Distance from the center of the soliton
           double exponent = deltaX*deltaX * (pow( abs(i - center)/a_e,2)/2 + pow( abs(j - center)/b_e,2)/2 
               + pow( abs(k + extrak - center)/c_e,2)/2);
           psi[2*whichPsi][i][j][k] += sqrt(norm)*exp(-exponent);
+          if (random == 1) psi[2*whichPsi+1][i][j][k] += sqrt(norm)*exp(-exponent);
           // psi[2*whichpsi+1][i][j][k] = 0; // Set the imaginary part to zero
         }
       }
     }
   #pragma omp barrier
+  if (random == 1){
+    double phase1 = fRand(0, 2*M_PI);
+    double phase2 = fRand(0, 2*M_PI);
+    double phase3 = fRand(0, 2*M_PI);
+    #pragma omp parallel for collapse(3) //not sure whether this is parallelizable
+    for(int i=0;i<PointsS;i++){
+      for(int j=0; j<PointsS;j++){
+        for(int k=nghost; k<PointsSS+nghost;k++){
+          size_t kreal = k + PointsSS*world_rank - nghost;
+          psi[2*whichPsi][i][j][k] =psi[2*whichPsi][i][j][k]*(1+cos(phase1*i)+cos(phase2*j)+cos(phase3*kreal));
+          psi[2*whichPsi+1][i][j][k] =psi[2*whichPsi+1][i][j][k]*(1+sin(phase1*i)+sin(phase2*j)+sin(phase3*kreal));
+        }
+      }
+    }
+    #pragma omp barrier
+    // fgrid.inputpsi(psi, nghost, whichPsi);
+    // fgrid.calculateFT();
+    // fgrid.add_phases();
+    // fgrid.calculateIFT();
+    // fgrid.transferpsi(psi, 1/pow(PointsS,3), nghost, whichPsi); // Not adding, otherwise it would add to already existing profile
+  }
 }
+
+
 
 // NEEDS SERIOUS DEBUGGING
 void domain3::set_initial_from_file(string filename_in, string filename_vel){
@@ -394,6 +420,10 @@ void domain3::setEddington(Eddington *eddington, int numpoints, double radmin, d
   // int num_k_real = num_k; 
   int skip_k = int(ceil(float(kmax_global)/num_k_real)); // Remember to ensure float division!
   if(world_rank==0) cout<< "skip k " << skip_k << endl;
+  bool klow =false; // if true, it means that the kmax is too low, hence needing to do the sum in a different way to recover the correct target density
+  if (kmax_global <10) {
+    klow =true;
+  }
   
   if (world_rank==0){
     if (first_initial_cond == true){ 
@@ -484,7 +514,6 @@ void domain3::setEddington(Eddington *eddington, int numpoints, double radmin, d
         if(kmax%skip_k != 0) {
           kmax = kmax + skip_k- (kmax % skip_k); 
         }
-        
         double psi_point_real = 0;
         double psi_point_im = 0;
         if(simplify_k == false){
@@ -495,18 +524,29 @@ void domain3::setEddington(Eddington *eddington, int numpoints, double radmin, d
                 double vx = Length/PointsS*(v1*i + v2*j + v3*(k+extrak)); 
                 double vtilde = 2*M_PI/ratiomass/Length *vv;// taking into account the ratio_mass r, to ensure periodic boundary conditions
                 double E = profile->Psi(distance) - pow(vtilde,2)/2; // You have to ensure E > 0, for bound system
-                if (E >0){
-                  double fe = eddington->fE_func(E);
-                  double psi_point = pow(2*M_PI/Length * skip_k/ratiomass, 3./2)*sqrt(fe);
-                  size_t index = size_t( size_t(v1/skip_k)+num_k_real) 
-                        + size_t(2*num_k_real*size_t( size_t(v2/skip_k)+num_k_real))
-                        + size_t(pow(2*size_t(num_k_real),2))*size_t( size_t(v3/skip_k)+num_k_real);
-                  psi_point_real +=  psi_point*cos(phases_send[index] + 2*M_PI/Length *vx);
-                  psi_point_im +=  psi_point*sin(phases_send[index] + 2*M_PI/Length *vx);
-                  // if (isnan(psi_point_real) == 1 || isnan(psi_point_im) ==1) 
-                  // {cout<< phases_send[index] << " " << kmax << " " << kmax_phases << " "<<i << " "<<j << " "<< k << " "<< fe<< " "<< psi_point << " "<< E << endl;
-                  // sleep(10);}
-                }
+                // if (klow == true && (kmax==kmax_global && vv ==0)){//do the low k sum on 20 points, exploiting spherical symmetry on kf_here
+                //   double fe = eddington->fE_func(E);
+                //   for (int kl=0; kl < 20; kl++){
+                //     double kf_here = 0.5*(kl+1)/20;
+                //     double psi_point = pow(2*M_PI/Length/ratiomass,3./2)*(0.5/20)*(4*M_PI*kf_here*kf_here)*sqrt(fe);
+                //     size_t index = size_t( size_t(v1/skip_k)+num_k_real) 
+                //           + size_t(2*num_k_real*size_t( size_t(v2/skip_k)+num_k_real))
+                //           + size_t(pow(2*size_t(num_k_real),2))*size_t( size_t(v3/skip_k)+num_k_real);
+                //     psi_point_real+=psi_point*cos(phases_send[index]); 
+                //     psi_point_im+=psi_point*sin(phases_send[index]); 
+                //   }                
+                // }
+                // else{
+                  if (E >0){
+                    double fe = eddington->fE_func(E);
+                    double psi_point = pow(2*M_PI/Length * skip_k/ratiomass, 3./2)*sqrt(fe);
+                    size_t index = size_t( size_t(v1/skip_k)+num_k_real) 
+                          + size_t(2*num_k_real*size_t( size_t(v2/skip_k)+num_k_real))
+                          + size_t(pow(2*size_t(num_k_real),2))*size_t( size_t(v3/skip_k)+num_k_real);
+                    psi_point_real +=  psi_point*cos(phases_send[index] + 2*M_PI/Length *vx);
+                    psi_point_im +=  psi_point*sin(phases_send[index] + 2*M_PI/Length *vx);
+                  }
+                // }
               }
           }
         }

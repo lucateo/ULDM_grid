@@ -1,6 +1,4 @@
 #include "uldm_mpi_2field.h"
-#include "uldm_sim_nfw.h"
-#include "uldm_stars.h"
 #include <boost/multi_array.hpp>
 #include <cmath>
 #include <cstdlib>
@@ -51,13 +49,21 @@ int main(int argc, char** argv){
   string grid3d_string = hyperparams[1]; // string to check if one should output 3d grid
   string phase_string = hyperparams[2]; // string to check if one should output phase of the field info
   int reduce_grid = stoi(hyperparams[3]); // Reduce resolution of the 3D output grid (needed if grid3D=true)
+  string adaptive_string = hyperparams[4]; // Adaptive timestep flag; if 1, uses adaptive timestep
+  string energy_spectrum = hyperparams[5]; // string to check if one wants to compute the energy spectrum
+
   bool mpirun_flag;
   istringstream(mpi_string)>>mpirun_flag;
   bool grid3d_flag;
   istringstream(grid3d_string)>>grid3d_flag;
   bool phase_flag;
   istringstream(phase_string)>>phase_flag;
-  cout<< mpirun_flag << " "<< grid3d_flag << " "<< phase_flag <<endl;
+  bool adaptive_flag;
+  istringstream(adaptive_string)>>adaptive_flag;
+  bool spectrum_flag;
+  istringstream(energy_spectrum)>>spectrum_flag;
+
+  cout<< mpirun_flag << " "<< grid3d_flag << " "<< phase_flag << " " << adaptive_flag <<endl;
   
   int num_fields = stod(params_sim[0]); // number of fields
   int Nx = stod(params_sim[1]); //number of gridpoints
@@ -70,6 +76,7 @@ int main(int argc, char** argv){
   int outputnumb_profile=stod(params_sim[6]);//number of steps before outputs for radial profiles and stores backup
   string initial_cond = params_sim[7]; // String which specifies the initial condition
   string start_from_backup = params_sim[8]; // true or false, depending on whether you want to start from a backup or not
+  string directory_name = params_sim[9]; // Directory name
   
   // Chek that parameters are loaded correctly
   cout<< num_fields << " " << Nx << " " << Length << " " << dt << " "<< numsteps << " " << outputnumb << " " << outputnumb_profile <<
@@ -123,13 +130,15 @@ int main(int argc, char** argv){
   if (mpirun_flag==true) outputname = "_mpi_";
   else outputname = "_";
   outputname = outputname+"nfields_"+to_string(num_fields)+"_Nx" + to_string(Nx) + "_L_" + to_string(Length)+ "_";
+  
+  domain3 D3(Nx,Nz,Length, num_fields,numsteps,dt,outputnumb, outputnumb_profile, Pointsmax, world_rank,world_size,nghost, mpirun_flag);
 
   // Apply initial conditions
   bool run_ok = true;
   if (initial_cond == "levkov" ) {// Levkov initial conditions
     if (params_initial_cond.size() > 2*num_fields-1){
       multi_array<double, 1> Nparts(extents[num_fields]); // Array of number of particls for the different fields
-      outputname = "out_levkov_new/levkov" + outputname;
+      outputname = directory_name+"levkov" + outputname;
       for (int i=0; i<num_fields;i++){
         Nparts[i] = stod(params_initial_cond[i]); // Number of particles
         outputname = outputname + "Npart"+to_string(i) +"_"+ to_string(Nparts[i]) + "_";
@@ -139,7 +148,7 @@ int main(int argc, char** argv){
         ratio_mass[i] = stod(params_initial_cond[num_fields+i]);
         outputname = outputname + "rmass"+to_string(i) +"_"+ to_string(ratio_mass[i]) + "_";
       }
-      domain3 D3(Nx,Nz,Length, num_fields,numsteps,dt,outputnumb, outputnumb_profile, outputname, Pointsmax, world_rank,world_size,nghost, mpirun_flag);
+      D3.set_output_name(outputname);
       D3.set_ratio_masses(ratio_mass);
       if(start_from_backup=="true")
         D3.initial_cond_from_backup();
@@ -148,11 +157,6 @@ int main(int argc, char** argv){
           D3.set_waves_Levkov(Nparts[i], i);
         }
       }
-      D3.set_grid(grid3d_flag);
-      D3.set_grid_phase(phase_flag); // It will output 2D slice of phase grid
-      D3.set_backup_flag(backup_bool);
-      D3.set_reduce_grid(reduce_grid);
-      D3.solveConvDif();
     }
     else{
       run_ok = false; 
@@ -164,7 +168,7 @@ int main(int argc, char** argv){
   else if (initial_cond == "delta" ) {// Dirac delta on Fourier initial conditions
     if (params_initial_cond.size() > 2*num_fields-2){
       multi_array<double, 1> Nparts(extents[num_fields]);
-      outputname = "out_delta/Delta" + outputname;
+      outputname = directory_name+"Delta" + outputname;
       for (int i=0; i<num_fields;i++){
         Nparts[i] = stod(params_initial_cond[i]); // Number of particles
         outputname = outputname + "Npart"+to_string(i) +"_"+ to_string(Nparts[i]) + "_";
@@ -182,7 +186,7 @@ int main(int argc, char** argv){
           cout << "Error: parameters should respect the inequality Nx > L^2r/4pi^2" << endl;
           return 1;
         }
-      domain3 D3(Nx,Nz,Length, num_fields,numsteps,dt,outputnumb, outputnumb_profile, outputname, Pointsmax, world_rank,world_size,nghost, mpirun_flag);
+      D3.set_output_name(outputname);
       D3.set_ratio_masses(ratio_mass);
       if(start_from_backup=="true")
         D3.initial_cond_from_backup();
@@ -191,11 +195,6 @@ int main(int argc, char** argv){
           D3.set_delta(Nparts[i], i);
         }
       }
-      D3.set_grid(grid3d_flag);
-      D3.set_grid_phase(phase_flag); // It will output 2D slice of phase grid
-      D3.set_backup_flag(backup_bool);
-      D3.set_reduce_grid(reduce_grid);
-      D3.solveConvDif();
     }
     else{
       run_ok=false; 
@@ -204,10 +203,11 @@ int main(int argc, char** argv){
     }
   }
 
+
   else if (initial_cond == "theta" ) {// Heaviside on Fourier initial conditions
     if (params_initial_cond.size() > 2*num_fields-2){
       multi_array<double, 1> Nparts(extents[num_fields]);
-      outputname="out_theta/Theta" + outputname;
+      outputname=directory_name+"Theta" + outputname;
       for (int i=0; i<num_fields;i++){
         Nparts[i] = stod(params_initial_cond[i]); // Number of particles
         outputname = outputname + "Npart"+to_string(i) +"_"+ to_string(Nparts[i]) + "_";
@@ -225,7 +225,7 @@ int main(int argc, char** argv){
           cout << "Error: parameters should respect the inequality Nx > L^2r/4pi^2" << endl;
           return 1;
         }
-      domain3 D3(Nx,Nz,Length, num_fields,numsteps,dt,outputnumb, outputnumb_profile, outputname, Pointsmax, world_rank,world_size,nghost, mpirun_flag);
+      D3.set_output_name(outputname);
       D3.set_ratio_masses(ratio_mass);
       if(start_from_backup=="true")
         D3.initial_cond_from_backup();
@@ -234,11 +234,6 @@ int main(int argc, char** argv){
           D3.set_theta(Nparts[i], i);
         }
       }
-      D3.set_grid(grid3d_flag);
-      D3.set_grid_phase(phase_flag); // It will output 2D slice of phase grid
-      D3.set_backup_flag(backup_bool);
-      D3.set_reduce_grid(reduce_grid);
-      D3.solveConvDif();
     }
     else{
       run_ok=false; 
@@ -255,19 +250,14 @@ int main(int argc, char** argv){
       for (int i = 0; i <num_fields; i++)
         ratio_mass[i] = 1; // Initialize all to one as a first step
       ratio_mass[whichpsi] = stod(params_initial_cond[2]);
-      outputname = "out_mpi/out_test/out_1Sol" + outputname +"ratiomass_"+ to_string(ratio_mass[whichpsi])+ "_rc_" 
+      outputname = directory_name+"out_1Sol" + outputname +"ratiomass_"+ to_string(ratio_mass[whichpsi])+ "_rc_" 
         + to_string(rc)+ "_field_"+to_string(whichpsi) + "_";
-      domain3 D3(Nx,Nz,Length,num_fields,numsteps,dt,outputnumb, outputnumb_profile, outputname, Pointsmax, world_rank,world_size,nghost, mpirun_flag);
+      D3.set_output_name(outputname);
       D3.set_ratio_masses(ratio_mass);
       if(start_from_backup=="true")
         D3.initial_cond_from_backup();
       else
         D3.setInitialSoliton_1(rc, whichpsi);
-      D3.set_grid(grid3d_flag);
-      D3.set_grid_phase(phase_flag); // It will output 2D slice of phase grid
-      D3.set_backup_flag(backup_bool);
-      D3.set_reduce_grid(reduce_grid);
-      D3.solveConvDif();
     }
     else{
       run_ok=false; 
@@ -279,7 +269,7 @@ int main(int argc, char** argv){
 
   else if (initial_cond == "eddington_nfw_soliton" ) {// NFW Eddington initial conditions + soliton, for text purposes
     if (params_initial_cond.size() > 4){
-      outputname = "out_Eddington/NFW_Soliton" + outputname;
+      outputname = directory_name+"NFW_Soliton" + outputname;
       ratio_mass[1] = stod(params_initial_cond[0]); // If nfields=1, this should be set to one
       double rs = stod(params_initial_cond[1]); // NFW scale radius
       double rhos = stod(params_initial_cond[2]); // NFW normalization
@@ -290,7 +280,7 @@ int main(int argc, char** argv){
       bool boolk = false; // simplify k sum always false
       int center = int(Nx/2);
       
-      domain3 D3(Nx,Nz,Length, num_fields,numsteps,dt,outputnumb, outputnumb_profile, outputname, Pointsmax, world_rank,world_size,nghost, mpirun_flag);
+      D3.set_output_name(outputname);
       D3.set_ratio_masses(ratio_mass);
       if(start_from_backup=="true")
         D3.initial_cond_from_backup();
@@ -300,11 +290,6 @@ int main(int argc, char** argv){
         D3.setEddington(&eddington, 500, Length/Nx, Length, 1, ratio_mass[1], num_k,boolk,center,center,center); // The actual max radius is between Length and Length/2
         D3.setInitialSoliton_1(rc, 0);
       }
-      D3.set_grid(grid3d_flag);
-      D3.set_grid_phase(phase_flag); // It will output 2D slice of phase grid
-      D3.set_backup_flag(backup_bool);
-      D3.set_reduce_grid(reduce_grid);
-      D3.solveConvDif();
     }
     else{
       run_ok=false; 
@@ -315,7 +300,7 @@ int main(int argc, char** argv){
 
 
   else if (initial_cond == "eddington_nfw" ) {// NFW Eddington initial conditions
-    outputname ="out_Eddington/Eddington_NFW" + outputname ;
+    outputname =directory_name+"Eddington_NFW" + outputname ;
     int nprofile_per_mass [num_fields]; 
     for(int i = 0; i < num_fields; i++){
       ratio_mass[i] = stod(params_initial_cond[2*i]);
@@ -350,7 +335,7 @@ int main(int argc, char** argv){
       int num_k = stoi(params_initial_cond[2*num_fields+ 5*total_nprofiles]); // Number of maximum k points in nested loop
       bool boolk = false; // simplify k sum always false
       
-      domain3 D3(Nx,Nz,Length, num_fields,numsteps,dt,outputnumb, outputnumb_profile, outputname, Pointsmax, world_rank,world_size,nghost, mpirun_flag);
+      D3.set_output_name(outputname);
       D3.set_ratio_masses(ratio_mass);
       if(start_from_backup=="true")
         D3.initial_cond_from_backup();
@@ -367,11 +352,6 @@ int main(int argc, char** argv){
           }
         }
       }
-      D3.set_grid(grid3d_flag);
-      D3.set_grid_phase(phase_flag); // It will output 2D slice of phase grid
-      D3.set_backup_flag(backup_bool);
-      D3.set_reduce_grid(reduce_grid);
-      D3.solveConvDif();
     }
     else{
       run_ok=false; 
@@ -382,7 +362,7 @@ int main(int argc, char** argv){
 
 
   else if (initial_cond == "eddington_nfw_halos" ) {// NFW Eddington initial conditions
-    outputname ="out_Eddington/Eddington_halos_NFW" + outputname ;
+    outputname =directory_name+"Eddington_halos_NFW" + outputname ;
     // Total density percentage going to field with ratio mass
     double density_percentage [num_fields];
     for(int i = 0; i < num_fields; i++){
@@ -414,7 +394,7 @@ int main(int argc, char** argv){
       int num_k = stoi(params_initial_cond[2*num_fields+ 5*num_halos+1]); // Number of maximum k points in nested loop
       bool boolk = false; // simplify k sum always false
       
-      domain3 D3(Nx,Nz,Length, num_fields,numsteps,dt,outputnumb, outputnumb_profile, outputname, Pointsmax, world_rank,world_size,nghost, mpirun_flag);
+      D3.set_output_name(outputname);
       D3.set_ratio_masses(ratio_mass);
       if(start_from_backup=="true")
         D3.initial_cond_from_backup();
@@ -429,11 +409,6 @@ int main(int argc, char** argv){
           }
         }
       }
-      D3.set_grid(grid3d_flag);
-      D3.set_grid_phase(phase_flag); // It will output 2D slice of phase grid
-      D3.set_backup_flag(backup_bool);
-      D3.set_reduce_grid(reduce_grid);
-      D3.solveConvDif();
     }
     else{
       run_ok=false; 
@@ -447,7 +422,7 @@ int main(int argc, char** argv){
     if (params_initial_cond.size() > 5){
       int field_id = stoi(params_initial_cond[0]); // The field where to put the Eddington generated NFW profile
       ratio_mass[field_id] = stod(params_initial_cond[1]); // If nfields=1, this should be set to one
-      outputname = "out_Eddington/Eddington_Plummer" + outputname;
+      outputname = directory_name+"Eddington_Plummer" + outputname;
       double rs = stod(params_initial_cond[2]); // Plummer scale radius
       double m0 = stod(params_initial_cond[3]); // Plummer mass normalization
       int num_k = stoi(params_initial_cond[4]); // Number of maximum k points in nested loop
@@ -456,7 +431,7 @@ int main(int argc, char** argv){
 
       int center = int(Nx/2);
       
-      domain3 D3(Nx,Nz,Length, num_fields,numsteps,dt,outputnumb, outputnumb_profile, outputname, Pointsmax, world_rank,world_size,nghost, mpirun_flag);
+      D3.set_output_name(outputname);
       D3.set_ratio_masses(ratio_mass);
       Plummer profile = Plummer(rs, m0, Length, true);// The actual max radius is between Length and Length/2
       Eddington eddington = Eddington(&profile, &profile, true);
@@ -465,11 +440,6 @@ int main(int argc, char** argv){
       else
         D3.setEddington(&eddington, 500, Length/Nx, Length, field_id, 
           ratio_mass[field_id], num_k, boolk,center,center,center); // The actual max radius is between Length and Length/2
-      D3.set_grid(grid3d_flag);
-      D3.set_grid_phase(phase_flag); // It will output 2D slice of phase grid
-      D3.set_backup_flag(backup_bool);
-      D3.set_reduce_grid(reduce_grid);
-      D3.solveConvDif();
     }
     else{
       run_ok =false;
@@ -483,7 +453,7 @@ int main(int argc, char** argv){
     if (params_initial_cond.size() > 4){
       double Nparts = stod(params_initial_cond[0]); // Levkov initial condition parameter
       ratio_mass[1] = stod(params_initial_cond[1]); 
-      outputname ="out_Eddington/NFW_Levkov" + outputname ;
+      outputname =directory_name+"NFW_Levkov" + outputname ;
       double rs = stod(params_initial_cond[2]); // NFW scale radius
       double rhos = stod(params_initial_cond[3]); // NFW normalization
       // double rmax = stod(params[15]); // NFW max radius
@@ -493,7 +463,7 @@ int main(int argc, char** argv){
       bool boolk = false; // simplify k sum always false
       int center = int(Nx/2);
       
-      domain3 D3(Nx,Nz,Length, num_fields,numsteps,dt,outputnumb, outputnumb_profile, outputname, Pointsmax, world_rank,world_size,nghost, mpirun_flag);
+      D3.set_output_name(outputname);
       D3.set_ratio_masses(ratio_mass);
       NFW profile = NFW(rs, rhos, Length, true);// The actual max radius is between Length and Length/2
       Eddington eddington = Eddington(&profile, &profile, true);
@@ -504,11 +474,6 @@ int main(int argc, char** argv){
         D3.setEddington(&eddington, 500, Length/Nx, Length, 1, ratio_mass[1], num_k, boolk,center,center,center); // The actual max radius is between Length and Length/2
         D3.set_waves_Levkov(Nparts, 0);
       }
-      D3.set_grid(grid3d_flag);
-      D3.set_grid_phase(phase_flag); // It will output 2D slice of phase grid
-      D3.set_backup_flag(backup_bool);
-      D3.set_reduce_grid(reduce_grid);
-      D3.solveConvDif();
     }
     else{
       run_ok=false; 
@@ -525,19 +490,14 @@ int main(int argc, char** argv){
       double length_lim = stod(params_initial_cond[2]); // Length lim of span of solitons
       double rmass = stod(params_initial_cond[3]); //
       ratio_mass[0] = rmass;
-      outputname = "out_Schive/out_Schive"+outputname
+      outputname = directory_name+"out_Schive"+outputname
         + "rc_" + to_string(rc)+ "_Nsol_" + to_string(Nsol)+ "_Llim_" + to_string(length_lim)+"_";
-      domain3 D3(Nx,Nz,Length,num_fields,numsteps,dt,outputnumb, outputnumb_profile, outputname, Pointsmax, world_rank,world_size,nghost,mpirun_flag);
+      D3.set_output_name(outputname);
       D3.set_ratio_masses(ratio_mass);
       if(start_from_backup=="true")
         D3.initial_cond_from_backup();
       else
         D3.setManySolitons_same_radius(Nsol,rc,length_lim, 0);
-      D3.set_grid(grid3d_flag);
-      D3.set_grid_phase(phase_flag); // It will output 2D slice of phase grid
-      D3.set_backup_flag(backup_bool);
-      D3.set_reduce_grid(reduce_grid);
-      D3.solveConvDif();
     }
     else{
       run_ok=false; 
@@ -553,19 +513,14 @@ int main(int argc, char** argv){
       double max_radius = stod(params_initial_cond[1]); //max radius of soliton
       int Nsol = stod(params_initial_cond[2]); // Number of solitons
       double length_lim = stod(params_initial_cond[3]); // Length lim of span of solitons
-      outputname = "out_Mocz/out_Mocz"+outputname + "_rmin_" + to_string(min_radius)+"_rmax_" 
+      outputname = directory_name+"out_Mocz"+outputname + "_rmin_" + to_string(min_radius)+"_rmax_" 
         +to_string(max_radius)+ "_Nsol_" + to_string(Nsol)+ "_Llim_" + to_string(length_lim)+"_";
-      domain3 D3(Nx,Nz,Length,num_fields,numsteps,dt,outputnumb, outputnumb_profile, outputname, Pointsmax, world_rank,world_size,nghost,mpirun_flag);
+      D3.set_output_name(outputname);
       D3.set_ratio_masses(ratio_mass);
       if(start_from_backup=="true")
         D3.initial_cond_from_backup();
       else
         D3.setManySolitons_random_radius(Nsol,min_radius,max_radius,length_lim, 0);
-      D3.set_grid(grid3d_flag);
-      D3.set_grid_phase(phase_flag); // It will output 2D slice of phase grid
-      D3.set_backup_flag(backup_bool);
-      D3.set_reduce_grid(reduce_grid);
-      D3.solveConvDif();
     }
     else{
       run_ok=false; 
@@ -580,18 +535,13 @@ int main(int argc, char** argv){
       double rc = stod(params_initial_cond[0]); //radius of soliton
       int Nsol = stoi(params_initial_cond[1]); // Number of solitons, should not surpass 30
       ratio_mass[0] =stod(params_initial_cond[2]); 
-      outputname = "out_test/out_deterministic"+ outputname + "ratiomass_" + to_string(ratio_mass[0]) +"_rc_" + to_string(rc)+ "_Nsol_" + to_string(Nsol)+"_";
-      domain3 D3(Nx,Nz,Length,num_fields,numsteps,dt,outputnumb, outputnumb_profile, outputname, Pointsmax, world_rank,world_size,nghost,mpirun_flag);
+      outputname = directory_name+"out_deterministic"+ outputname + "ratiomass_" + to_string(ratio_mass[0]) +"_rc_" + to_string(rc)+ "_Nsol_" + to_string(Nsol)+"_";
+      D3.set_output_name(outputname);
       D3.set_ratio_masses(ratio_mass);
       if(start_from_backup=="true")
         D3.initial_cond_from_backup();
       else
         D3.setManySolitons_deterministic(rc,Nsol, 0);
-      D3.set_grid(grid3d_flag);
-      D3.set_grid_phase(phase_flag); // It will output 2D slice of phase grid
-      D3.set_backup_flag(backup_bool);
-      D3.set_reduce_grid(reduce_grid);
-      D3.solveConvDif();
     }
     else{
       run_ok=false; 
@@ -601,245 +551,30 @@ int main(int argc, char** argv){
   }
   
 
-  else if (initial_cond == "NFW" ) {// External NFW initial conditions
-    if (params_initial_cond.size() > 1 + 2*num_fields){
-      multi_array<double, 1> Nparts(extents[num_fields]);
-      double rho0_tilde = stod(params_initial_cond[0]);//Adimensional rho_0 for the NFW external potential
-      double rs_nfw = stod(params_initial_cond[1]); // Number of particles
-      outputname = "out_ext_nfw/out_nfw"+ outputname;
-      for (int i=0; i<num_fields;i++){
-        Nparts[i] = stod(params_initial_cond[2+i]); // Number of particles
-        outputname = outputname + "Npart"+to_string(i) +"_"+ to_string(Nparts[i]) + "_";
-      }
-      NFW profile = NFW(rs_nfw, rho0_tilde, Length, true);
-      domain_ext D3(Nx,Nz,Length,num_fields,numsteps,dt,outputnumb, outputnumb_profile, outputname, Pointsmax, 
-        world_rank,world_size,nghost,mpirun_flag, &profile);
-      D3.set_ratio_masses(ratio_mass);
-      if(num_fields > 1){
-        for(int i=1; i<num_fields;i++){
-          ratio_mass[i] = stod(params_initial_cond[1+num_fields+i]);
-        }
-      }
-      if(start_from_backup=="true")
-        D3.initial_cond_from_backup();
-      else{
-        for (int i=0; i<num_fields; i++){
-          D3.set_waves_Levkov(Nparts[i], i);
-        }
-      }
-      D3.set_grid(grid3d_flag);
-      D3.set_grid_phase(phase_flag); // It will output 2D slice of phase grid
-      D3.set_backup_flag(backup_bool);
-      D3.set_reduce_grid(reduce_grid);
-      D3.solveConvDif();
-    }
-    else{
-      run_ok=false; 
-      if (world_rank==0)
-        cout<<"You need 1 + 2*nfields arguments to pass to the code: rho0_tilde, Rs, {Npart}, {ratio_mass except for field 0}" << endl;
-    }
-  }
-  
-  
-  else if (initial_cond == "NFW_solitons" ) {// External NFW initial conditions with multi solitons
-    if (params_initial_cond.size() > 3){
-      double rho0_tilde = stod(params_initial_cond[0]);//Adimensional rho_0 for the NFW external potential
-      double rs_nfw = stod(params_initial_cond[1]); // Number of particles
-      int Nsol = stoi(params_initial_cond[2]); // Number of solitons
-      double rc = stod(params_initial_cond[3]); // core radius of solitons
-      outputname = "out_ext_nfw/out_nfwEXT_solitons" + outputname;
-      outputname = outputname + "Nsol_"+ to_string(Nsol)+ "_rc_"+ to_string(rc) + "_";
-      NFW profile = NFW(rs_nfw, rho0_tilde, Length, true);
-      domain_ext D3(Nx,Nz,Length,num_fields,numsteps,dt,outputnumb, outputnumb_profile, outputname, Pointsmax, 
-        world_rank,world_size,nghost,mpirun_flag, &profile);
-      D3.set_ratio_masses(ratio_mass);
-      if(start_from_backup=="true")
-        D3.initial_cond_from_backup();
-      else{
-        if(Nsol==1) D3.setInitialSoliton_1(rc, 0);
-        else D3.setManySolitons_same_radius(Nsol, rc, Length/2, 0);
-      }
-      D3.set_grid(grid3d_flag);
-      D3.set_grid_phase(phase_flag); // It will output 2D slice of phase grid
-      D3.set_backup_flag(backup_bool);
-      D3.set_reduce_grid(reduce_grid);
-      D3.solveConvDif();
-    }
-    else{ 
-      if (world_rank==0)
-        cout<<"You need 4 arguments to pass to the code: rho0_tilde, Rs, Nsol, rc" << endl;
-    }
-  }
-  
-
-  else if (initial_cond == "NFW_ext_Eddington" ) {// External NFW initial conditions with Eddington NFW profile
-    if (params_initial_cond.size() > 4){
-      double rho0_tilde = stod(params_initial_cond[0]);//Adimensional rho_0 for the NFW external potential
-      double rs_nfw = stod(params_initial_cond[1]); // Adimensional rs
-      double rho_edd = stod(params_initial_cond[2]); // Eddington rhos
-      double rs_edd = stod(params_initial_cond[3]); // Eddington rs
-      int num_k = stoi(params_initial_cond[4]); // Number of k in Eddington k sum
-      outputname = "out_ext_nfw/out_nfwExt_Eddington_NFW" + outputname;
-        + "_RsExt_" + to_string(rs_nfw) + "_rh0Ext_" + to_string(rho0_tilde)
-        +"_Rs_" + to_string(rs_edd) + "_rh00_" + to_string(rho_edd) + "_";
-
-      int center = int(Nx/2);
-      
-      NFW profile_ext = NFW(rs_nfw, rho0_tilde, Length, true);
-      // The potential is the sum of the external and Eddington; this works only if rs_nfw = rs_edd
-      NFW profile_pot = NFW(rs_nfw, rho0_tilde+rho_edd, Length, true);
-      NFW profile_den = NFW(rs_edd, rho_edd, Length, true);
-      Eddington eddington = Eddington(&profile_pot, &profile_den, false);
-      domain_ext D3(Nx,Nz,Length,num_fields,numsteps,dt,outputnumb, outputnumb_profile, outputname, Pointsmax, 
-        world_rank,world_size,nghost,mpirun_flag, &profile_ext);
-      D3.set_ratio_masses(ratio_mass);
-      if(start_from_backup=="true")
-        D3.initial_cond_from_backup();
-      else
-        D3.setEddington(&eddington, 500, Length/Nx, Length, 0, ratio_mass[0], num_k, false, center,center,center); // The actual max radius is between Length and Length/2
-      D3.set_grid(grid3d_flag);
-      D3.set_grid_phase(phase_flag); // It will output 2D slice of phase grid
-      D3.set_backup_flag(backup_bool);
-      D3.set_reduce_grid(reduce_grid);
-      D3.solveConvDif();
-    }
-    else{
-      run_ok=false; 
-      if (world_rank==0)
-        cout<<"You need 5 arguments to pass to the code: rho0_tilde_ext, Rs_ext, rho0_tilde_Eddington, Rs_Eddington, num_k" << endl;
-    }
-  }
-  
-  
-  else if (initial_cond == "stars" ) {// Stars in ULDM background
-    if (params_initial_cond.size() > 2*num_fields-1){
-      multi_array<double, 1> Nparts(extents[num_fields]);
-      outputname="out_stars/stars_levkov_mpi" + outputname;
-      for (int i=0; i<num_fields;i++){
-        Nparts[i] = stod(params_initial_cond[i]); // Number of particles
-        outputname = outputname + "Npart"+to_string(i) +"_"+ to_string(Nparts[i]) + "_";
-      }
-      if(num_fields > 1){
-        for(int i=1; i<num_fields;i++){
-          ratio_mass[i] = stod(params_initial_cond[num_fields-1+i]);
-        }
-      }
-      
-      int numstars = stoi(params_initial_cond[2*num_fields-1]); // number of stars
-      multi_array<double, 2> stars_arr(extents[2][numstars]);
-      ifstream infile = ifstream(outputname+"stars_backup.txt");
-      int l = 0;
-      int star_i = 0;
-      string temp;
-      while (std::getline(infile, temp, ' ')) {
-        double num = stod(temp);
-        if(l<7){ // loop over single star feature
-          stars_arr[star_i][l] = num;
-          cout<< stars_arr[star_i][l] << " " << star_i << " " << l << endl;
-          l++;
-        }
-        if(l==7){ // loop over
-          star_i++;
-          l=0;
-        }
-      }
-
-      domain_stars D3(Nx,Nz,Length,num_fields,numsteps,dt,outputnumb, outputnumb_profile, outputname, Pointsmax, 
-        world_rank,world_size,nghost,mpirun_flag, numstars);
-      D3.put_initial_stars(stars_arr);
-      D3.set_ratio_masses(ratio_mass);
-      if(start_from_backup=="true")
-        D3.initial_cond_from_backup();
-      else{
-        for (int i=0; i<num_fields; i++){
-          D3.set_waves_Levkov(Nparts[i], i);
-        }
-      }
-      D3.set_grid(grid3d_flag);
-      D3.set_grid_phase(phase_flag); // It will output 2D slice of phase grid
-      D3.set_backup_flag(backup_bool);
-      D3.set_reduce_grid(reduce_grid);
-      D3.solveConvDif();
-    }
-    else{
-      run_ok=false; 
-      if (world_rank==0)
-        cout<<"You need 2*nfields arguments to pass to the code: {Npart}, {ratio_mass except for field 0}, numstars" << endl;
-    }
-  }
-  
-  else if (initial_cond == "stars_soliton" ) {// Stars in ULDM background
-    if (params_initial_cond.size() > 1){
-      outputname= "out_stars/stars_soliton"+outputname;
-      double rc = stod(params_initial_cond[0]); // core radius of soliton
-      int numstars = stoi(params_initial_cond[1]); // number of stars
-      outputname = outputname + "rc_"+to_string(rc)+ "_Nstars_"+to_string(numstars) + "_";
-      
-      multi_array<double, 2> stars_arr(extents[numstars][7]);
-      ifstream infile = ifstream(outputname+"stars_backup.txt");
-      int l = 0;
-      int star_i = 0;
-      string temp;
-      while (std::getline(infile, temp, ' ')) {
-        double num = stod(temp);
-        if(l<7){ // loop over single star feature
-          stars_arr[star_i][l] = num;
-          cout<< stars_arr[star_i][l] << " " << star_i << " " << l << endl;
-          l++;
-        }
-        if(l==7){ // loop over
-          star_i++;
-          l=0;
-        }
-      }
-      domain_stars D3(Nx,Nz,Length,num_fields,numsteps,dt,outputnumb, outputnumb_profile, outputname, Pointsmax, 
-        world_rank,world_size,nghost,mpirun_flag, numstars);
-      D3.put_initial_stars(stars_arr);
-      D3.set_ratio_masses(ratio_mass);
-      if(start_from_backup=="true")
-        D3.initial_cond_from_backup();
-      else{
-          D3.setInitialSoliton_1(rc, 0);
-        }
-      D3.set_grid(grid3d_flag);
-      D3.set_grid_phase(phase_flag); // It will output 2D slice of phase grid
-      D3.set_backup_flag(backup_bool);
-      D3.set_reduce_grid(reduce_grid);
-      D3.solveConvDif();
-    }
-    else{
-      run_ok=false; 
-      if (world_rank==0)
-        cout<<"You need 2 arguments to pass to the code: rc, Nstars" << endl;
-    }
-  }
-  
 
   else if (initial_cond == "elliptCollapse" ) {// Elliptical collapse initial conditions
-    if (params_initial_cond.size() > 4){
+    if (params_initial_cond.size() > 5){
       double Norm = stod(params_initial_cond[0]); // Normalization of profile
       double a_e = stod(params_initial_cond[1]); // parameter elliptical
       double b_e = stod(params_initial_cond[2]); // parameter elliptical
       double c_e = stod(params_initial_cond[3]); // parameter elliptical
       ratio_mass[0] = stod(params_initial_cond[4]); // Of which ratio mass you put the initial condition;
-      outputname = "out_test/out_EllitpCollapse" + outputname + "ratio_mass_"+ to_string(ratio_mass[0])+ "_Norm_" 
+      int random = stoi(params_initial_cond[5]); // if 1, insert random phases in Fourier;
+      outputname = directory_name+"out_EllitpCollapse" + outputname + "ratio_mass_"+ to_string(ratio_mass[0])+ "_Norm_" 
         + to_string(Norm)+ "_ae_"+to_string(a_e) +"_be_"+to_string(b_e) +"_ce_"+to_string(c_e) + "_" ;
-      domain3 D3(Nx,Nz,Length,num_fields,numsteps,dt,outputnumb, outputnumb_profile, outputname, Pointsmax, world_rank,world_size,nghost, mpirun_flag);
+      if(random == 1)
+        outputname = outputname + "rand_phases_";
+      D3.set_output_name(outputname);
       D3.set_ratio_masses(ratio_mass);
       if(start_from_backup=="true")
         D3.initial_cond_from_backup();
       else
-        D3.setEllitpicCollapse(Norm,a_e,b_e,c_e,0);
-      D3.set_grid(grid3d_flag);
-      D3.set_grid_phase(phase_flag); // It will output 2D slice of phase grid
-      D3.set_backup_flag(backup_bool);
-      D3.set_reduce_grid(reduce_grid);
-      D3.solveConvDif();
+        D3.setEllitpicCollapse(Norm,a_e,b_e,c_e,0,random);
     }
     else{
       run_ok=false; 
       if (world_rank==0)
-        cout<<"You need 5 arguments to pass to the code: Norm, a_e, b_e, c_e, ratio_mass[0]" << endl;
+        cout<<"You need 6 arguments to pass to the code: Norm, a_e, b_e, c_e, ratio_mass[0], random_phases_int" << endl;
     }
   }
 
@@ -853,6 +588,16 @@ int main(int argc, char** argv){
     }
   }
 
+  if(run_ok==true){
+      D3.set_grid(grid3d_flag);
+      D3.set_grid_phase(phase_flag); // It will output 2D slice of phase grid
+      D3.set_backup_flag(backup_bool);
+      D3.set_reduce_grid(reduce_grid);
+      D3.set_adaptive_dt_flag(adaptive_flag);
+      D3.set_spectrum_flag(spectrum_flag);
+      D3.solveConvDif();
+  }
+
   if(mpirun_flag==true){
     MPI_Finalize();
   }
@@ -860,3 +605,5 @@ int main(int argc, char** argv){
 }
 
 
+  
+  

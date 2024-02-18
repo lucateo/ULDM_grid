@@ -15,9 +15,9 @@ class domain_stars: public domain3
     ofstream stars_filename;
   public:
     domain_stars(size_t PS,size_t PSS, double L, int nfields, int Numsteps, double DT, int Nout, int Nout_profile, 
-            string Outputname, int pointsm, int WR, int WS, int Nghost, bool mpi_flag, int num_stars):
+            int pointsm, int WR, int WS, int Nghost, bool mpi_flag, int num_stars):
       domain3{PS, PSS, L, nfields, Numsteps, DT, Nout, Nout_profile, 
-          Outputname, pointsm, WR, WS, Nghost, mpi_flag} , stars(extents[num_stars][7])
+          pointsm, WR, WS, Nghost, mpi_flag} , stars(extents[num_stars][7])
       { };
     domain_stars() { }; // Default constructor
     ~domain_stars() { };

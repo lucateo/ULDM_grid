@@ -8,16 +8,17 @@
 # out_profile: number of radially averaged profile snapshots
 # initial_cond: string which specifies the initial condition
 # start_from_backup: if true, starts from a already saved run, with the same parameters mpi_string, Nx, Length, num_fields, initial_cond
+# directory_name: name of the directory
 # Example: a run of one field with a box of 128^3 points, whose length is 100 in grid units, initial dt=0.1, with 1000 time steps, snapshot of profile every 20 timesteps, snapshot of projected density every 40 timesteps, initial condition corresponding to stars_soliton, which does not start from a backup run 
-#1 128 100 0.1 1000 20 40 stars_soliton false 
+#1 128 100 0.1 1000 20 40 stars_soliton false out_stars/
 #
 # The second line specify the parameters of the initial condition chosen, in this example, rc =5 and Nstars =100
 #5 100
 # 
 # The third line are hyperparameters like the option for mpi, etc.; order:
 #if mpi=1, sets the grid for mpi; if set3Dgrid=1, sets the output to be the full psi field, instead of just projected density, with resolution reduced by a factor reduce_grid; if outputPhase=1, it outputs a slice of the phase field
-#nfields, Nx, L, dt, Nsteps, outN, outN_profile, name, backup
-1 64 100 0.01 5000 100 100 elliptCollapse false
-0.01 3 3.5 3.2 1
-# mpi, set3Dgrid, outputPhase, reduce_grid
-1 0 0 1
+#nfields, Nx, L, dt, Nsteps, outN, outN_profile, name, backup, directory_name
+1 64 125 3 1000 500 500 1Sol true out_mpi/out_test/
+5 0 1
+# mpi, set3Dgrid, outputPhase, reduce_grid, adaptive_dt_flag, spectrum_flag
+0 0 0 1 1 1

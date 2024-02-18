@@ -1,6 +1,7 @@
 #include "uldm_mpi_2field.h"
 #include <ios>
 #include <string>
+#include <vector>
 
 using namespace std;
 using namespace boost;
@@ -12,6 +13,11 @@ void domain3::openfiles(){ // It opens all the output files, and it inserts an i
     profilefile.open(outputname+"profiles.txt");  profilefile<<"{"; profilefile.setf(ios_base::fixed);
     phase_slice.open(outputname+"phase_slice.txt");  phase_slice<<"{"; phase_slice.setf(ios_base::fixed);
     profile_sliced.open(outputname+"profile_sliced.txt");profile_sliced<<"{"; profile_sliced.setf(ios_base::fixed);
+    if (spectrum_bool == true){
+      spectrum_energy.open(outputname+"times_spectrum.txt");       
+      spectrum_energy<<"{";   
+      spectrum_energy.setf(ios_base::fixed);
+    }   
   }
   // This you have to open on all nodes, if mpi_bool==true, append the world_rank to the file name
   // if(mpi_bool==true){
@@ -29,6 +35,10 @@ void domain3::openfiles_backup(){ //It opens all the output files in append mode
     profilefile.open(outputname+"profiles.txt", ios_base::app); profilefile.setf(ios_base::fixed);
     phase_slice.open(outputname+"phase_slice.txt", ios_base::app);   phase_slice.setf(ios_base::fixed);
     profile_sliced.open(outputname+"profile_sliced.txt", ios_base::app);profile_sliced.setf(ios_base::fixed);
+    if (spectrum_bool == true){
+      spectrum_energy.open(outputname+"times_spectrum.txt",ios_base::app);       
+      spectrum_energy.setf(ios_base::fixed);
+    }   
   }
   // This you have to open on all nodes, if mpi_bool==true, append the world_rank to the file name
   // if(mpi_bool==true){
@@ -49,6 +59,9 @@ void domain3::closefiles(){
     profilefile.close();
     profile_sliced.close();
     phase_slice.close();
+    if (spectrum_bool==true){
+      spectrum_energy.close();
+    }
   }
 }
 
@@ -285,6 +298,55 @@ void domain3::snapshot(double stepCurrent){//Outputs the full density profile; i
       cout.setf(ios_base::fixed);
       outputPhaseSlice(phase_slice);
       phase_slice<<"\n"<<","<<flush;
+    }
+  }
+}
+
+void domain3::spectrum_output(vector<vector<double>> &spectrum_vect, double stepCurrent, double t_in, double tcurr){
+  double repsi=0;
+  double impsi=0;
+  // if(world_rank==0)
+  //   spectrum_energy<<"{{"<<flush;
+  for (size_t whichPsi=0; whichPsi<nfields; whichPsi++){
+    // if (whichPsi>0) spectrum_energy<<",{";
+    #pragma omp parallel for collapse(3) reduction(+:repsi,impsi)
+    for(size_t i=0;i<PointsS;i++)
+      for(size_t j=0;j<PointsS;j++)
+        for(size_t k=nghost;k<PointsSS+nghost;k++){
+          repsi=repsi+psi_backup[2*whichPsi][i][j][k-nghost]*psi[2*whichPsi][i][j][k] 
+              +psi_backup[2*whichPsi+1][i][j][k-nghost]*psi[2*whichPsi+1][i][j][k];
+          impsi=impsi+psi_backup[2*whichPsi][i][j][k-nghost]*psi[2*whichPsi+1][i][j][k] 
+              -psi_backup[2*whichPsi+1][i][j][k-nghost]*psi[2*whichPsi][i][j][k];
+        }
+    #pragma omp barrier
+
+    double totRepsi; // summed up across all nodes
+    double totImpsi; // summed up across all nodes
+    if(mpi_bool==true){
+      MPI_Allreduce(&repsi, &totRepsi, 1, MPI_DOUBLE, MPI_SUM,MPI_COMM_WORLD);
+      MPI_Allreduce(&impsi, &totImpsi, 1, MPI_DOUBLE, MPI_SUM,MPI_COMM_WORLD);
+      totRepsi = totRepsi*pow(Length/PointsS,3);
+      totImpsi = totImpsi*pow(Length/PointsS,3);
+    }
+    else {
+      totRepsi = repsi*pow(Length/PointsS,3);
+      totImpsi = impsi*pow(Length/PointsS,3);
+    }
+    if(world_rank==0){
+      vector<double> spect{totRepsi, totImpsi, (double)whichPsi, t_in, tcurr};
+      spectrum_vect.push_back(spect);
+      // spectrum_energy<<scientific<<totRepsi<<","<<totImpsi<<","<<whichPsi<<","<<t_in<<","<<tcurr <<"}"<<flush;
+    }
+  }
+  // if(world_rank==0)
+  //   spectrum_energy<<"}\n"<< ","<<flush;
+}
+
+void domain3::spectrum_write(vector<vector<double>> &spectrum_vect){
+  if (world_rank == 0) {
+    for(int i=0; i<spectrum_vect.size();i++){
+      spectrum_energy<<"{"<<scientific<<spectrum_vect[i][0]<<","<<spectrum_vect[i][1]<<","<<spectrum_vect[i][2]<<","
+        <<spectrum_vect[i][3]<<","<<spectrum_vect[i][4] <<"}\n"<<","<<flush;
     }
   }
 }
