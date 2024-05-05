@@ -2,6 +2,7 @@
 #include <boost/multi_array.hpp>
 #include <cmath>
 #include <cstdlib>
+#include <ostream>
 #include <string>
 #include <vector>
 #include "eddington.h"
@@ -553,28 +554,35 @@ int main(int argc, char** argv){
 
 
   else if (initial_cond == "elliptCollapse" ) {// Elliptical collapse initial conditions
-    if (params_initial_cond.size() > 5){
+    if (params_initial_cond.size() > 7){
       double Norm = stod(params_initial_cond[0]); // Normalization of profile
       double a_e = stod(params_initial_cond[1]); // parameter elliptical
       double b_e = stod(params_initial_cond[2]); // parameter elliptical
       double c_e = stod(params_initial_cond[3]); // parameter elliptical
       ratio_mass[0] = stod(params_initial_cond[4]); // Of which ratio mass you put the initial condition;
-      int random = stoi(params_initial_cond[5]); // if 1, insert random phases in Fourier;
+      bool rand_phases;
+      istringstream(params_initial_cond[5])>>rand_phases; //If Acorr !=0, if true, use random phases, otherwise uses random field
+      double A_corr = stod(params_initial_cond[6]); // Acorr; if Acorr==0, avoid the random procedure completely;
+      double lcorr = stod(params_initial_cond[7]); // Correlation length, effective if random==1;
       outputname = directory_name+"out_EllitpCollapse" + outputname + "ratio_mass_"+ to_string(ratio_mass[0])+ "_Norm_" 
         + to_string(Norm)+ "_ae_"+to_string(a_e) +"_be_"+to_string(b_e) +"_ce_"+to_string(c_e) + "_" ;
-      if(random == 1)
-        outputname = outputname + "rand_phases_";
+      if(A_corr != 0){
+        outputname = outputname +"rand_phases_"+ to_string(rand_phases) +"_Acorr_"+to_string(A_corr) 
+          + "_lcorr_" + to_string(lcorr) + "_";
+      }
       D3.set_output_name(outputname);
       D3.set_ratio_masses(ratio_mass);
       if(start_from_backup=="true")
         D3.initial_cond_from_backup();
       else
-        D3.setEllitpicCollapse(Norm,a_e,b_e,c_e,0,random);
+        D3.setEllitpicCollapse(Norm,a_e,b_e,c_e,0, rand_phases, A_corr,lcorr);
     }
     else{
       run_ok=false; 
-      if (world_rank==0)
-        cout<<"You need 6 arguments to pass to the code: Norm, a_e, b_e, c_e, ratio_mass[0], random_phases_int" << endl;
+      if (world_rank==0){
+        cout<<"You need 8 arguments to pass to the code: Norm, a_e, b_e, c_e, ratio_mass[0], random_phases_int, ";
+        cout<< "Acorr, lcorr" <<endl;
+      }
     }
   }
 
@@ -582,9 +590,9 @@ int main(int argc, char** argv){
   else{
     run_ok=false; 
     if (world_rank==0){
-      cout<< "String in 9th position does not match any possible initial conditions; possible initial conditions are:" << endl;
+      cout<< "String in 8th position does not match any possible initial conditions; possible initial conditions are:" << endl;
       cout<< "Schive , Mocz , deterministic , levkov, delta, theta, 1Sol, NFW, NFW_solitons, NFW_ext_Eddington, eddington_nfw,";
-      cout<<" eddington_nfw_halos, eddington_nfw_levkov, eddington_nfw_soliton, stars, stars_soliton, ellitpCollapse" <<endl;
+      cout<<" eddington_nfw_halos, eddington_nfw_levkov, eddington_nfw_soliton, stars, stars_soliton, elliptCollapse" <<endl;
     }
   }
 

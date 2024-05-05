@@ -128,6 +128,46 @@ class Plummer: public Profile{
     }
 };
 
+class Hernquist: public Profile{
+  protected:
+    double Rh;
+    double Mh;
+    double Rmax;
+    bool dimensionless_units = false; // If true, put G -> 1/(4\pi) for dimensionless units
+    double G_eff = G_ASTRO;
+  public:
+    Hernquist(double rh, double mh, double rmax, bool dimless_bool): Profile{}, Rh(rh), Mh(mh), Rmax(rmax), dimensionless_units(dimless_bool) {
+        analytic_Eddington = false; // Actually, there is an analytic version, but not implemented yet
+        name_profile= "Hernquist";
+        params.push_back(rh); params.push_back(mh); params.push_back(rmax);
+        params_name.push_back("Rh"); params_name.push_back("Mh"); params_name.push_back("Rmax");
+        if(dimensionless_units == true) G_eff = 1 /(4*M_PI);
+      };
+    Hernquist() {};
+    ~Hernquist() {};
+    double potential(double r){
+      double result; 
+      result = -G_eff*Mh/(r + Rh);
+      return result;
+    }
+    double density(double r){ // rhos in M_sun/kpc^3, rs in kpc, r in kpc
+      return Mh*Rh/(2*M_PI)/(r*pow((r+Rh),3) );
+    }
+    double Psi(double r){
+      return -potential(r) + potential(Rmax);
+    }
+    double mass_rmax(double rmax){
+      return Mh*rmax*rmax/pow(rmax+Rh,2);
+    }
+    double analytic_small_radius(double psi){//Analitic second derivative d^2\rho/dpsi^2 for small radius
+      double factor1  = (Rmax+ 2*Rh)/(G_eff*G_eff*Mh*M_PI*Rh*(Rh-Rmax));
+      double factor2=G_eff*Mh*Mh*pow(Rmax-Rh,3)/(M_PI*Rh*pow(G_eff*Mh*(Rmax- 2*Rh) + Rh*(Rh-Rmax)*psi,3));
+      return factor1+factor2 - 3*psi/(pow(G_eff,3)*Mh*Mh*M_PI);
+    }
+    double analytic_d2rho_dpsi(double psi) {return -1;} // No analytic
+    double analytic_fE(double psi) {return -1;} // No analytic
+};
+
 class Eddington{
   protected:
     // I need pointers if I am using pure virtual functions

@@ -274,53 +274,65 @@ void domain3::set_theta(double Nparts, int whichF){
   }
 }
 
-// sets |psi|^2 = norm*Exp(-(x/a_e)^2 - (y/b_e)^2 - (z/c_e)^2), for field whichPsi; if random is 1, insert random phases in Fourier space
-void domain3::setEllitpicCollapse(double norm, double a_e, double b_e, double c_e, int whichPsi, int random){ 
+// sets |psi|^2 = norm*Exp(-(x/a_e)^2 - (y/b_e)^2 - (z/c_e)^2), for field whichPsi; 
+// if random is 1, insert gaussian correlation C(x) = A\exp(-x^2/l_corr^2); if random=1, addition this field configuration AFTER
+// anothe initial condition IS NOT SUPPORTED!!! (Yet)
+// The major axis of the ellipsoid are dispalced by two random angles with respect to x,y,z grid directions
+void domain3::setEllitpicCollapse(double norm, double a_e, double b_e, double c_e, int whichPsi, bool rand_phases, double A_rand, double l_corr){ 
   int center = (int) PointsS / 2; // The center of the grid, more or less
   int extrak= PointsSS*world_rank -nghost; // Take into account the node where you are. If mpi==false, world rank and nghost are initialized to 0
+  
+  srand(time(NULL)); // Initialize the random seed for random phases
+  // Two random angles, theta for rotation around z axis followed by rotation around x axis of angle phi
+  double theta_rand = fRand(0, 2*M_PI);
+  double phi_rand = fRand(0, 2*M_PI);
   // double ratio = ratio_mass[whichpsi]; //
+  
   if (world_rank == 0){
     if (first_initial_cond == true){ 
       info_initial_cond.open(outputname+"initial_cond_info.txt");
       first_initial_cond = false;
     }
     else info_initial_cond.open(outputname+"initial_cond_info.txt", ios_base::app);
-    info_initial_cond<<"Elliptic_Collapse " << norm << " " << a_e << " " << b_e << " " << c_e << " " << ratio_mass[whichPsi] << " " << random << endl;
+    info_initial_cond<<"Elliptic_Collapse " << norm << " " << a_e << " " << b_e << " " << c_e << " " << ratio_mass[whichPsi] 
+      << " " << random << " " << A_rand << " " << l_corr << " " << theta_rand << " " << phi_rand << endl;
   }
-  #pragma omp parallel for collapse(3) //not sure whether this is parallelizable
-    for(int i=0;i<PointsS;i++){
-      for(int j=0; j<PointsS;j++){
-        for(int k=nghost; k<PointsSS+nghost;k++){
-          double exponent = deltaX*deltaX * (pow( abs(i - center)/a_e,2)/2 + pow( abs(j - center)/b_e,2)/2 
-              + pow( abs(k + extrak - center)/c_e,2)/2);
-          psi[2*whichPsi][i][j][k] += sqrt(norm)*exp(-exponent);
-          if (random == 1) psi[2*whichPsi+1][i][j][k] += sqrt(norm)*exp(-exponent);
-          // psi[2*whichpsi+1][i][j][k] = 0; // Set the imaginary part to zero
+  if (A_rand != 0 && rand_phases==false){
+    fgrid.input_Gauss_corr(A_rand, l_corr, Length);
+    fgrid.calculateFT();
+    fgrid.transferpsi_add(psi, 1/pow(Length,3), nghost, whichPsi); 
+  }
+  // Starts with putting phases,
+  else if (A_rand != 0 && rand_phases==true){
+    // I will take just the imaginary part, so multiply A_rand by two to obtain the correct correlation
+    fgrid.input_Gauss_corr(2*A_rand, l_corr, Length);
+    fgrid.calculateFT();
+    fgrid.transferpsi_add(psi, 1/pow(Length,3), nghost, whichPsi); 
+  }
+
+  #pragma omp parallel for collapse(3)
+  for(int i=0;i<PointsS;i++){
+    for(int j=0; j<PointsS;j++){
+      for(int k=nghost; k<PointsSS+nghost;k++){
+        // Rotations are around the center of the grid, 
+        int reali = i - center;
+        int realj = j- center;
+        int realk = k + extrak - center;
+        double xprime = deltaX *(reali* cos(theta_rand) + realj* sin(theta_rand));
+        double yprime = deltaX*(-cos(phi_rand)*sin(theta_rand)*reali + cos(phi_rand)*cos(theta_rand)*realj + sin(phi_rand)*realk);  
+        double zprime = deltaX*(sin(phi_rand)*sin(theta_rand)*reali - sin(phi_rand)*cos(theta_rand)*realj + cos(phi_rand)*realk);  
+        double exponent = (pow( abs(xprime)/a_e,2)/2 + pow( abs(yprime)/b_e,2)/2 
+            + pow( abs(zprime)/c_e,2)/2);
+        if(rand_phases == false) psi[2*whichPsi][i][j][k] += sqrt(norm)*exp(-exponent);
+        else if (rand_phases == true) {
+          // I will use the phases stored in the imaginary axis
+          psi[2*whichPsi][i][j][k] = sqrt(norm)*exp(-exponent)*cos(psi[2*whichPsi+1][i][j][k]);
+          psi[2*whichPsi+1][i][j][k] = sqrt(norm)*exp(-exponent)*sin(psi[2*whichPsi+1][i][j][k]);
         }
       }
     }
+  }
   #pragma omp barrier
-  if (random == 1){
-    double phase1 = fRand(0, 2*M_PI);
-    double phase2 = fRand(0, 2*M_PI);
-    double phase3 = fRand(0, 2*M_PI);
-    #pragma omp parallel for collapse(3) //not sure whether this is parallelizable
-    for(int i=0;i<PointsS;i++){
-      for(int j=0; j<PointsS;j++){
-        for(int k=nghost; k<PointsSS+nghost;k++){
-          size_t kreal = k + PointsSS*world_rank - nghost;
-          psi[2*whichPsi][i][j][k] =psi[2*whichPsi][i][j][k]*(1+cos(phase1*i)+cos(phase2*j)+cos(phase3*kreal));
-          psi[2*whichPsi+1][i][j][k] =psi[2*whichPsi+1][i][j][k]*(1+sin(phase1*i)+sin(phase2*j)+sin(phase3*kreal));
-        }
-      }
-    }
-    #pragma omp barrier
-    // fgrid.inputpsi(psi, nghost, whichPsi);
-    // fgrid.calculateFT();
-    // fgrid.add_phases();
-    // fgrid.calculateIFT();
-    // fgrid.transferpsi(psi, 1/pow(PointsS,3), nghost, whichPsi); // Not adding, otherwise it would add to already existing profile
-  }
 }
 
 

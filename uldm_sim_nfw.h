@@ -2,6 +2,7 @@
 #define ULDM_SIM_NFW_H
 #include "uldm_mpi_2field.h"
 #include "eddington.h"
+#include <vector>
 // double nfw_potential(double r, double Rs, double normalization){
 //   // normalization = G \rho_0/(\gamma^2 m^2); \gamma is an adimensional rescaling parameter, which is \gamma = v_0^2 for Levkov initial waves
 //   double result;
@@ -12,7 +13,8 @@
 
 class domain_ext: public domain3
 {public:
-  Profile * profile;
+  vector<Profile*> profiles;
+  // Profile * profile;
   domain_ext(size_t PS,size_t PSS, double L, int nfields, int Numsteps, double DT, int Nout, int Nout_profile, 
           int pointsm, int WR, int WS, int Nghost, bool mpi_flag):
     domain3{PS, PSS, L, nfields, Numsteps, DT, Nout, Nout_profile, 
@@ -20,7 +22,7 @@ class domain_ext: public domain3
   domain_ext() { }; // Default constructor
   ~domain_ext() { };
 
-void set_profile(Profile * Profile) { profile = Profile;}
+void set_profile(Profile * Profile) { profiles.push_back(Profile);}
 
 // psi -> exp(-i tstep d_alpha (Phi + Phi_ext)) psi; does a step forward or with the opposite sign by changing the sign of tstep
 virtual void expiPhi(double tstep, double da, int whichPsi){
@@ -37,7 +39,11 @@ virtual void expiPhi(double tstep, double da, int whichPsi){
         int Dy=PointsS/2 -(int)j; if(abs(Dy)>PointsS/2){Dy=abs(Dy)-(int)PointsS;} // periodic boundary conditions!
         int Dz=PointsS/2 -(int)k -extrak; if(abs(Dz)>PointsS/2){Dz=abs(Dz)-(int)PointsS;} // periodic boundary conditions!
         double distance=pow(Dx*Dx+Dy*Dy+Dz*Dz, 0.5) * deltaX;
-        double potential = Phi[i][j][k-nghost] + profile->potential(distance);
+        double potential = 0;
+        for(int p=0; p<profiles.size();p++){
+          potential = potential + profiles[p]->potential(distance);
+        }
+        potential = potential + Phi[i][j][k-nghost];
 
         psi[2*whichPsi][i][j][k]=cos(-tstep*da*r*potential)*Repsi - sin(-tstep*da*r*potential)*Impsi;   //real part
         psi[2*whichPsi+1][i][j][k]=sin(-tstep*da*r*potential)*Repsi + cos(-tstep*da*r*potential)*Impsi;   //im part
@@ -51,8 +57,10 @@ virtual void exportValues(){
     // runinfo<<"{"<<Length<<","<<tf<<","<<PointsS<<","<<numoutputs<<","<<numoutputs_profile<<"," << Rs << "," << normalization << "}"<<endl;
     runinfo<<tcurrent<<" "<<E_tot_initial<<" "<< Length<<" "<<numsteps<<" "<<PointsS<<" "
       <<numoutputs<<" "<<numoutputs_profile;
-    for (int i=0; i<profile->params.size(); i++) // Fill with the values of the parameters for the profile
-      runinfo<<" "<<profile->params[i];
+    for(int j=0; j<profiles.size(); j++){
+      for (int i=0; i<profiles[j]->params.size(); i++) // Fill with the values of the parameters for the profile
+        runinfo<<" "<<profiles[j]->params[i];
+    }
     for(int i=0; i<nfields; i++)
     {
       runinfo<<" "<< ratio_mass[i];
@@ -68,7 +76,11 @@ virtual double energy_pot(const int & i, const int & j, const int & k, int which
   int Dy=PointsS/2 -(int)j; if(abs(Dy)>PointsS/2){Dy=abs(Dy)-(int)PointsS;} // periodic boundary conditions!
   int Dz=PointsS/2 -(int)k -extrak; if(abs(Dz)>PointsS/2){Dz=abs(Dz)-(int)PointsS;} // periodic boundary conditions!
   double distance=pow(Dx*Dx+Dy*Dy+Dz*Dz, 0.5) * deltaX;
-  return (pow(psi[2*whichPsi][i][j][k],2) + pow(psi[2*whichPsi+1][i][j][k],2))*(0.5*Phi[i][j][k-nghost] + profile->potential(distance));
+  double ext_pot = 0;
+  for(int p=0; p<profiles.size();p++){
+    ext_pot = ext_pot + profiles[p]->potential(distance);
+  }
+  return (pow(psi[2*whichPsi][i][j][k],2) + pow(psi[2*whichPsi+1][i][j][k],2))*(0.5*Phi[i][j][k-nghost] + ext_pot);
 }
 
         // virtual multi_array<double,2> profile_density(double density_max){ // It computes the averaged density and energy as function of distance from soliton

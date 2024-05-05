@@ -188,6 +188,8 @@ class Fourier{
     void add_phases();
     // Insert on initial conditions the Levkov waves
     void inputSpectrum(double Length, double Npart, double r);
+    // Gaussian correlated field
+    void input_Gauss_corr(double A_corr, double l_corr, double Length);
     // Insert on initial conditions the delta in Fourier space
     void inputDelta(double Length, double Npart, double r);
     // Insert on initial conditions the Heaviside in Fourier space
@@ -276,7 +278,7 @@ class domain3{
 
     // Variables useful for backup
     double tcurrent; // Current time of simulation
-    double E_tot_initial; // Stores the initial total energy to implement the adaptive time step
+    double E_tot_initial=0; // Stores the initial total energy to implement the adaptive time step
 
     int world_rank;
     int world_size;
@@ -369,7 +371,7 @@ class domain3{
       // Sets Heaviside in Fourier space initial conditions
       void set_theta(double Npart, int whichPsi);
       // sets |psi|^2 = norm*Exp(-(x/a_e)^2 - (y/b_e)^2 - (z/c_e)^2), for field whichPsi
-      void setEllitpicCollapse(double norm, double a_e, double b_e, double c_e, int whichPsi, int random);
+      void setEllitpicCollapse(double norm, double a_e, double b_e, double c_e, int whichPsi, bool rand_phases, double Acorr, double lcorr);
       // Use a file with density and velocity at each grid point to be implemented in the grid
       void set_initial_from_file(string filename_in, string filename_vel); 
       void setEddington(Eddington *eddington, int numpoints, double radmin, double radmax, int fieldid, 

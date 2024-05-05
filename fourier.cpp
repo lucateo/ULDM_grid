@@ -77,6 +77,31 @@ void Fourier::inputSpectrum(double Length, double Npart, double r){
   #pragma omp barrier
 }
 
+// Gaussian correlated field
+void Fourier::input_Gauss_corr(double A_corr, double l_corr, double Length){
+  random_device rd;
+  // To generate gaussian distributed numbers, rd should initialize a random seed
+  default_random_engine generator(rd()); 
+  normal_distribution<double> distribution(0, 1); 
+  #pragma omp parallel for collapse(3) 
+  for(size_t i=0;i<Nx;i++){
+    for(size_t j=0; j<Nx;j++){
+      for(size_t k=0; k<Nz;k++){
+        size_t realk=world_rank*Nz+k;
+        double Ak = distribution(generator);
+        double Bk = distribution(generator);
+        double momentum2 =pow(2*M_PI/Length,2)*(pow(shift(i,Nx),2) + pow(shift(j,Nx),2) 
+            + pow(shift(realk,Nx),2));
+        double Ck= A_corr*pow(sqrt(M_PI)*l_corr*Length, 3.)*exp(-l_corr*l_corr*momentum2/4);
+
+        rin[i+Nx*j+Nx*Nx*k][0]=sqrt(Ck/2)*Ak; //fill in the real part
+        rin[i+Nx*j+Nx*Nx*k][1]=sqrt(Ck/2)*Bk; //fill in the imaginary part
+      }
+    }
+  }
+  #pragma omp barrier
+}
+
 // Insert on initial conditions a delta function in Fourier space
 void Fourier::inputDelta(double Length, double Npart, double r){
   //size_t i,j,k;

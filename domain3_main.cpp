@@ -10,7 +10,6 @@ domain3::domain3(size_t PS,size_t PSS, double L, int n_fields, int Numsteps, dou
   mpi_bool(mpi_flag),
   nfields(n_fields),
   psi(extents[n_fields*2][PS][PS][PSS+2*Nghost]), //real and imaginary parts are stored consequently, i.e. psi[0]=real part psi1 and psi[1]=imaginary part psi1, then the same for psi2
-  psi_backup(extents[n_fields*2][PS][PS][PSS]), //backup which will be used if spectrum energy bool is true
   Phi(extents[PS][PS][PSS]),
   ratio_mass(extents[n_fields]),
   fgrid(PS,PSS,WR,WS, mpi_flag), // class for Fourier trasform, defined above
@@ -286,6 +285,10 @@ void domain3::set_reduce_grid(int reduce_grid){//
 }
 void domain3::set_spectrum_flag(bool spect){//
   spectrum_bool = spect;
+  // To avoid memory consumptions if spectrum output is not required, initialize psi_backup only now
+  if (spect == true) {
+    psi_backup.resize(extents[nfields*2][PointsS][PointsS][PointsSS+2*nghost]);  
+  }
 }
 void domain3::set_output_name(string name){//
   outputname = name;
@@ -339,10 +342,13 @@ void domain3::solveConvDif(){
     openfiles();
   int stepCurrent=0;
   double t_spectrum;
-  vector<vector<double>> spectrum_vector; 
+  vector<vector<double>> spectrum_vector;
   if (world_rank==0) cout<< "File name of the run " << outputname << endl;
   if (start_from_backup == false){
     tcurrent = 0;
+    exportValues(); // for backup purposes
+    ofstream psi_final;
+    outputfullPsi(psi_final,true,1);
     snapshot(stepCurrent); // I want the snapshot of the initial conditions
     snapshot_profile(stepCurrent); 
     t_spectrum = tcurrent; // The time at which computes the energy spectrum
@@ -374,11 +380,6 @@ void domain3::solveConvDif(){
     if (mpi_bool==true){ 
       sortGhosts(); // Should be called, to do derivatives in real space
     }
-    exportValues(); // for backup purposes
-    ofstream phi_final;
-    outputfullPhi(phi_final);
-    ofstream psi_final;
-    outputfullPsi(psi_final,true,1);
   }
   else if (start_from_backup == true){
     ifstream infile(outputname+"runinfo.txt");
@@ -391,7 +392,7 @@ void domain3::solveConvDif(){
       //   dt=stod(temp);
       i++;
     }
-    double t_spectrum = tcurrent; // The time at which computes the energy spectrum
+    t_spectrum = tcurrent; // The time at which computes the energy spectrum
     if(spectrum_bool == true){
       #pragma omp parallel for collapse(4)
       for(int l = 0; l < 2*nfields; l++)
