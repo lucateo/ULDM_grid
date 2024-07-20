@@ -50,6 +50,11 @@ double derivative_3point(double f1_plus, double f1_minus, double f2_plus, double
   return (15*m1 - 6*m2 +m3)/10.0;
 }
 
+// First order derivative with 5 points-midpoint, f2_plus = f(x + 2h), f_minus = f(x-h) etc.
+double derivative_5midpoint(double f2_plus, double f_plus, double f_minus, double f2_minus, double deltaX){
+  return (f2_minus-8*f_minus+8*f_plus-f2_plus)/12/deltaX;
+}
+
 // Soliton profile in grid units
 double psi_soliton(double r_c, double r, double ratio){
     // lambda^2 of soliton solution with r_c in units of 1/m

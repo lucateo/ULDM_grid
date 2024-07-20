@@ -38,6 +38,8 @@ extern double cyc_double(double ar, double le);
 // 3 point order derivative, mostly for computing kinetic energy
 extern double derivative_3point(double f1_plus, double f1_minus, double f2_plus, 
                                 double f2_minus, double f3_plus, double f3_minus);
+// First order derivative with 5 points-midpoint, f2_plus = f(x + 2h), f_minus = f(x-h) etc.
+extern double derivative_5midpoint(double f2_plus, double f_plus, double f_minus, double f2_minus, double deltaX);
 // 3D linear interpolation
 extern double linear_interp_3D(multi_array<double, 1> x_compute, multi_array<int, 2> xii, 
     multi_array<double,3> fii, double deltax);  
@@ -366,6 +368,8 @@ class domain3{
       //////////////// Initial conditions functions, defined in domain3_initial_cond.cpp ////////////////
       // Just test, put empty initial conditions file
       void setTest();
+      // For test, sets a uniform density sphere of density rho0 and radius rad
+      void uniform_sphere(double rho0, double rad);
       // Initial condition with waves, test purposes
       void initial_waves(int whichF);
       // Sets one soliton in the center of the box

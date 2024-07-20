@@ -75,92 +75,256 @@ void step_stars(){
     stars[s][4] = stars[s][4] -ax_shared*dt ;
     stars[s][5] = stars[s][5] - ay_shared*dt ;
     stars[s][6] = stars[s][6] - az_shared*dt ;
-    stars[s][1] = stars[s][1] + dt*stars[s][4]/2;
-    stars[s][2] = stars[s][2] + dt*stars[s][5]/2;
-    stars[s][3] = stars[s][3] + dt*stars[s][6]/2;
+    stars[s][1] = x + dt*stars[s][4]/2;
+    stars[s][2] = y + dt*stars[s][5]/2;
+    stars[s][3] = z + dt*stars[s][6]/2;
+  //   // // Potential energy of the particle
+  // multi_array<double,1> x_compute(extents[3]);
+  // multi_array<int,2> xii(extents[2][3]);
+  // multi_array<double,3> fii(extents[2][2][2]);
+  //   for(int i=0; i<3;i++){
+  //     xii[0][i] = floor(stars[s][1+i]/deltaX);
+  //     // Avoid that the 2 grid interpolating point share one coordinate exactly
+  //     xii[1][i] = ceil((stars[s][1+i]/deltaX+1E-10));
+  //     x_compute[i] = stars[s][i+1];
+  //   }
+  //     for(int i1 =0;i1<2;i1++)
+  //       for(int i2 =0;i2<2;i2++)
+  //         for(int i3 =0;i3<2;i3++){
+  //           fii[i1][i2][i3] = Phi[cyc(xii[i1][0],PointsS)][cyc(xii[i2][1],PointsS)][cyc(xii[i3][2],PointsS)];
+  //         }
+  //     stars[s][7] = stars[s][0]*linear_interp_3D(x_compute, xii,fii, deltaX);
   }
+}
+
+void gradient_potential(multi_array<double,4> &arr){
+  #pragma omp parallel for collapse (4)
+  for(int coord=0;coord<3; coord++)
+    for (int i = 0; i <PointsS; i++)
+      for (int j = 0; j <PointsS; j++)
+        for (int k = nghost; k <PointsSS+nghost; k++){ // CHANGE FOR MPI
+          double Phi_2plus; double Phi_plus; double Phi_minus; double Phi_2minus;
+          if(coord==0){
+            Phi_2plus = Phi[cyc(i+2,PointsS)][j][k];
+            Phi_plus = Phi[cyc(i+1,PointsS)][j][k];
+            Phi_minus = Phi[cyc(i-1,PointsS)][j][k];
+            Phi_2minus = Phi[cyc(i-2,PointsS)][j][k];
+          }
+          else if (coord==1){
+            Phi_2plus = Phi[i][cyc(j+2,PointsS)][k];
+            Phi_plus = Phi[i][cyc(j+1,PointsS)][k];
+            Phi_minus = Phi[i][cyc(j-1,PointsS)][k];
+            Phi_2minus = Phi[i][cyc(j-2,PointsS)][k];
+          }
+          else if (coord==2){
+            Phi_2plus = Phi[i][j][cyc(k+2,PointsSS+2*nghost)];
+            Phi_plus = Phi[i][j][cyc(k+1,PointsSS+2*nghost)];
+            Phi_minus = Phi[i][j][cyc(k-1,PointsSS+2*nghost)];
+            Phi_2minus = Phi[i][j][cyc(k-2,PointsSS+2*nghost)];
+          }
+          arr[coord][i][j][k] = derivative_5midpoint(Phi_2plus,Phi_plus,Phi_minus,Phi_2minus, deltaX);
+        }
+  #pragma omp barrier
 }
 
 void step_stars_fourier(){
-  multi_array<double,4> arr(extents[3][PointsS][PointsS][PointsSS]);
-  // #pragma omp parallel for collapse (3)
-  // for (int i = 0; i <PointsS; i++)
-  //   for (int j = 0; j <PointsS; j++)
-  //     for (int k = 0; k <PointsSS; k++){ // CHANGE FOR MPI
-  //       double rad = sqrt(pow(cyc(i-PointsS/2,PointsS),2)
-  //         +pow(cyc(j-PointsS/2,PointsS),2)+pow(cyc(k-PointsS/2,PointsS),2));
-  //       double value;
-  //       if (rad < 2) value = -0.54/8*pow(rad*deltaX,2);
-  //       else  value= -0.54/deltaX /rad;
-  //       Phi[i][j][k] = value;
-  //       // if (value>1) cout<< "Exceeds " << value << " " << i << " " << j << " " << k << endl;
-  //     }
-  // #pragma omp barrier
-
-  fgrid.kPhi_FT(Phi, arr, Length);
-  // #pragma omp parallel for collapse (4)
-  // for(int coord=0;coord<3;coord++)
-  // for (int i = 0; i <PointsS; i++)
-  //   for (int j = 0; j <PointsS; j++)
-  //     for (int k = 0; k <PointsSS; k++){ // CHANGE FOR MPI
-  //       if (arr[coord][i][j][k]>1) cout<< "Exceeds " <<arr[coord][i][j][k]  << " " << i << " " << j << " " << k << endl;
-  //     }
-  // #pragma omp barrier
-  // cout << "Arr " << arr[0][30][30][30] << endl;
+  multi_array<double,4> arr(extents[3][PointsS][PointsS][PointsS]);
+  // fgrid.kPhi_FT(Phi, arr, Length);
+  gradient_potential(arr);
   multi_array<double,1> x_compute(extents[3]);
   multi_array<int,2> xii(extents[2][3]);
   multi_array<double,3> fii(extents[2][2][2]);
-  // #pragma omp parallel for collapse(1)
   for (int s = 0; s <num_stars_eff; s++){
-    // cout<< "Num star " << s << endl;
     // Leapfrog second order, ADAPTIVE STEP NOT IMPLEMENTED
     for(int i=0; i<3;i++){
       double coord_comp = cyc_double(stars[s][i+1]+ 0.5*dt*stars[s][i+4],Length);
-      // cout << "coord comp " << coord_comp << endl;
       xii[0][i] = floor(coord_comp/deltaX);
-      // cout << "coord 1 " << xii[0][i] << endl;
-      // Avoid that the 2 grid interpolating point share one coordinate exactly
       xii[1][i] = ceil(coord_comp/deltaX+1E-10); 
-      // cout << "coord 2 " << xii[1][i] << endl;
       x_compute[i] = coord_comp;
-      // cout<< xii[0][i] << " " << xii[1][i] << " " << x_compute[i] << endl;
     }
-    for(int coord=0; coord<3; coord++){
-      for(int i1 =0;i1<2;i1++)
-        for(int i2 =0;i2<2;i2++)
-          for(int i3 =0;i3<2;i3++){
-            fii[i1][i2][i3] = arr[coord][cyc(xii[i1][0],PointsS)][cyc(xii[i2][1],PointsS)][cyc(xii[i3][2],PointsS)];
-      // cout<< fii[i1][i2][i3] << " " << xii[i1][0] << " "<< xii[i2][1]<< " "<< xii[i3][2]<<" "<<endl; 
-          }
-          // cout<< endl;
-      stars[s][coord+4]= stars[s][coord+4] - linear_interp_3D(x_compute, xii,fii, deltaX)*dt;
-    }
-    stars[s][1] = cyc_double(stars[s][1] + dt*stars[s][4]/2, Length);
-    stars[s][2] = cyc_double(stars[s][2] + dt*stars[s][5]/2, Length);
-    stars[s][3] = cyc_double(stars[s][3] + dt*stars[s][6]/2, Length);
+      for(int coord=0; coord<3; coord++){
+        for(int i1 =0;i1<2;i1++)
+          for(int i2 =0;i2<2;i2++)
+            for(int i3 =0;i3<2;i3++){
+          // With cyc in the z bin, this should work both when nghost=0 or nghost =2; with nghost=2, I do not need
+          // to reinforce periodic boundary on the edges
+              fii[i1][i2][i3] = arr[coord][cyc(xii[i1][0],PointsS)][cyc(xii[i2][1],PointsS)][cyc(xii[i3][2],PointsS)];
+            }
+        stars[s][4+coord] = stars[s][4+coord] - linear_interp_3D(x_compute, xii,fii, deltaX);
+      }
+    stars[s][1] = cyc_double(x_compute[0] + dt*stars[s][4]/2, Length);
+    stars[s][2] = cyc_double(x_compute[1] + dt*stars[s][5]/2, Length);
+    stars[s][3] = cyc_double(x_compute[2] + dt*stars[s][6]/2, Length);
     
-    // Potential energy of the particle
-    for(int i=0; i<3;i++){
-      xii[0][i] = floor(stars[s][1+i]/deltaX);
-      // Avoid that the 2 grid interpolating point share one coordinate exactly
-      xii[1][i] = ceil((stars[s][1+i]/deltaX+1E-10));
-      x_compute[i] = stars[s][i+1];
-      // cout<< deltaX*xii[0][i] << " " << deltaX*xii[1][i] << " " << x_compute[i] << endl;
-    }
-    for(int i1 =0;i1<2;i1++)
-      for(int i2 =0;i2<2;i2++)
-        for(int i3 =0;i3<2;i3++){
-  // cout<<"Here ?" << Phi[12][32][32] << " " << xii[i1][0]<< " " <<xii[i1][1]<< " " <<xii[i1][2]<< " " << endl;
-          fii[i1][i2][i3] = Phi[cyc(xii[i1][0],PointsS)][cyc(xii[i2][1],PointsS)][cyc(xii[i3][2],PointsS)];
-      // cout<< fii[i1][i2][i3] << " ";
-        }
-      //  cout<< "x compute, interp " << linear_interp_3D(x_compute, xii,fii, deltaX) << endl;
-    stars[s][7] = stars[s][0]*linear_interp_3D(x_compute, xii,fii, deltaX);
+    // // Potential energy of the particle
+    // for(int i=0; i<3;i++){
+    //   xii[0][i] = floor(stars[s][1+i]/deltaX);
+    //   // Avoid that the 2 grid interpolating point share one coordinate exactly
+    //   xii[1][i] = ceil((stars[s][1+i]/deltaX+1E-10));
+    //   x_compute[i] = stars[s][i+1];
+    // }
+    // double pot_en = 0;
+    //   for(int i1 =0;i1<2;i1++)
+    //     for(int i2 =0;i2<2;i2++)
+    //       for(int i3 =0;i3<2;i3++){
+    //         fii[i1][i2][i3] = Phi[cyc(xii[i1][0],PointsS)][cyc(xii[i2][1],PointsS)][cyc(xii[i3][2],PointsS)];
+    //       }
+    //   stars[s][7] = stars[s][0]*linear_interp_3D(x_compute, xii,fii, deltaX);
+    // #pragma omp barrier
   }
-  // #pragma omp barrier
 }
 
+
+// void step_stars_fourier(){
+//   multi_array<double,4> arr(extents[3][PointsS][PointsS][PointsSS+2*nghost]);
+//   // fgrid.kPhi_FT(Phi, arr, Length);
+//   gradient_potential(arr);
+
+//   // #pragma omp parallel for collapse (4)
+//   // for(int coord=0;coord<3;coord++)
+//   // for (int i = 0; i <PointsS; i++)
+//   //   for (int j = 0; j <PointsS; j++)
+//   //     for (int k = 0; k <PointsSS; k++){ // CHANGE FOR MPI
+//   //       if (arr[coord][i][j][k]>1) cout<< "Exceeds " <<arr[coord][i][j][k]  << " " << i << " " << j << " " << k << endl;
+//   //     }
+//   // #pragma omp barrier
+//   // cout << "Arr " << arr[0][30][30][30] << endl;
+//   multi_array<double,1> x_compute(extents[3]);
+//   multi_array<int,2> xii(extents[2][3]);
+//   multi_array<double,3> fii(extents[2][2][2]);
+//   // k =0 in the current world rank corresponds to the true k0_cell
+//   int k0_cell = PointsSS*world_rank - nghost;
+//   // #pragma omp parallel for collapse(1)
+//   for (int s = 0; s <num_stars_eff; s++){
+//     // Result of gradPhi to be shared among different nodes
+//     double ax = 0;
+//     double ay = 0;
+//     double az = 0;
+//     multi_array<double,1> gradPhi(extents[3]);
+//     // cout<< "Num star " << s << endl;
+//     // Leapfrog second order, ADAPTIVE STEP NOT IMPLEMENTED
+//     for(int i=0; i<3;i++){
+//       double coord_comp = cyc_double(stars[s][i+1]+ 0.5*dt*stars[s][i+4],Length);
+//       // cout << "coord comp " << coord_comp << endl;
+//       xii[0][i] = floor(coord_comp/deltaX);
+//       // cout << "coord 1 " << xii[0][i] << endl;
+//       // Avoid that the 2 grid interpolating point share one coordinate exactly
+//       xii[1][i] = ceil(coord_comp/deltaX+1E-10); 
+//       // cout << "coord 2 " << xii[1][i] << endl;
+//       x_compute[i] = coord_comp;
+//       // cout<< xii[0][i] << " " << xii[1][i] << " " << x_compute[i] << endl;
+//     }
+//     // if (x_compute[2]>=deltaX*k0_cell && x_compute[2]<deltaX*(k0_cell+PointsSS)){
+//       for(int coord=0; coord<3; coord++){
+//         for(int i1 =0;i1<2;i1++)
+//           for(int i2 =0;i2<2;i2++)
+//             for(int i3 =0;i3<2;i3++){
+//           // With cyc in the z bin, this should work both when nghost=0 or nghost =2; with nghost=2, I do not need
+//           // to reinforce periodic boundary on the edges
+//               fii[i1][i2][i3] = arr[coord][cyc(xii[i1][0],PointsS)][cyc(xii[i2][1],PointsS)][cyc(xii[i3][2]-k0_cell,PointsSS)];
+//         // cout<< fii[i1][i2][i3] << " " << xii[i1][0] << " "<< xii[i2][1]<< " "<< xii[i3][2]<<" "<<endl; 
+//         // cout<< "Check x3 " << xii[i3][2]<<" " << cyc(xii[i3][2]-k0_cell,PointsSS)<<endl; 
+//             }
+//         gradPhi[coord] = linear_interp_3D(x_compute, xii,fii, deltaX);
+//             // cout<< endl;
+//       // double ax = 0;
+//       // double ay = 0;
+//       // double az = 0;
+//       // // Check how to meaningfully do the reduction!
+//       // #pragma omp parallel for collapse (3) reduction (+:ax,ay,az)
+//       // for (int i = 0; i <PointsS; i++)
+//       //   for (int j = 0; j <PointsS; j++)
+//       //     for (int k = nghost; k <PointsSS+nghost; k++){ // CHANGE FOR MPI
+//       //       vector<double> acc_from_point = acceleration_from_point(i, j, k, x_compute[0], x_compute[1], x_compute[2], soften_param);
+//       //       ax += acc_from_point[0];
+//       //       ay += acc_from_point[1];
+//       //       az += acc_from_point[2];
+//       //     }
+//       // #pragma omp barrier
+//         // double gradphi = linear_interp_3D(x_compute, xii,fii, deltaX);
+//       //   cout<< "xcompute " << x_compute[0]/deltaX << " " << x_compute[1]/deltaX << " "<< x_compute[2]/deltaX << endl;
+//       //   cout<< "Check gradphi " <<coord << " " << gradphi << " " << ax << " " << ay << " " << az << endl;
+//       }
+//     // }
+//     // else cout<< "TADADADA " << endl;
+//     ax=gradPhi[0]; ay=gradPhi[1]; az=gradPhi[2];
+//     double ax_shared, ay_shared, az_shared; // total summed up across all nodes
+//     if(mpi_bool==true){
+//       MPI_Allreduce(&ax, &ax_shared, 1, MPI_DOUBLE, MPI_SUM,MPI_COMM_WORLD);
+//       MPI_Allreduce(&ay, &ay_shared, 1, MPI_DOUBLE, MPI_SUM,MPI_COMM_WORLD);
+//       MPI_Allreduce(&az, &az_shared, 1, MPI_DOUBLE, MPI_SUM,MPI_COMM_WORLD);
+//     }
+//     else {
+//       ax_shared=ax; ay_shared=ay; az_shared=az;
+//     }
+//     // cout<< ax << " " << ay << " " << az << " " << ax_shared << " " << ay_shared<< " " << az_shared << " " << gradPhi[0] << endl;
+//     stars[s][4]= stars[s][4] - ax_shared*dt;
+//     stars[s][5]= stars[s][5] - ay_shared*dt;
+//     stars[s][6]= stars[s][6] - az_shared*dt;
+//     stars[s][1] = cyc_double(x_compute[0] + dt*stars[s][4]/2, Length);
+//     stars[s][2] = cyc_double(x_compute[1] + dt*stars[s][5]/2, Length);
+//     stars[s][3] = cyc_double(x_compute[2] + dt*stars[s][6]/2, Length);
+    
+//     // // Potential energy of the particle
+//     // for(int i=0; i<3;i++){
+//     //   xii[0][i] = floor(stars[s][1+i]/deltaX);
+//     //   // Avoid that the 2 grid interpolating point share one coordinate exactly
+//     //   xii[1][i] = ceil((stars[s][1+i]/deltaX+1E-10));
+//     //   x_compute[i] = stars[s][i+1];
+//     //   // cout<<"Hola "<< deltaX*xii[0][i] << " " << deltaX*xii[1][i] << " " << x_compute[i] << endl;
+//     // }
+//     // double pot_en = 0;
+//     // if (x_compute[2]>=deltaX*k0_cell && x_compute[2]<deltaX*(k0_cell+PointsSS)){
+//     //   for(int i1 =0;i1<2;i1++)
+//     //     for(int i2 =0;i2<2;i2++)
+//     //       for(int i3 =0;i3<2;i3++){
+//     //         // With cyc in the z bin, this should work both when nghost=0 or nghost =2; with nghost=2, I do not need
+//     //         // to reinforce periodic boundary on the edges
+//     //         fii[i1][i2][i3] = Phi[cyc(xii[i1][0],PointsS)][cyc(xii[i2][1],PointsS)][cyc(xii[i3][2]-k0_cell,PointsSS)];
+//     //       }
+//     //   stars[s][7] = stars[s][0]*linear_interp_3D(x_compute, xii,fii, deltaX);
+//     //   pot_en = stars[s][0]*linear_interp_3D(x_compute, xii,fii, deltaX);
+//     // }
+//     // // Actually, potential energy computation should happen in only one node, but this is the best I could
+//     // // come up with; for future, I can make such that this is called only on snapshots
+//     // double pot_en_shared;  
+//     // if(mpi_bool==true){
+//     //   MPI_Allreduce(&pot_en, &pot_en_shared, 1, MPI_DOUBLE, MPI_SUM,MPI_COMM_WORLD);
+//     // }
+//     // else {
+//     //   pot_en_shared=pot_en;
+//     // }
+//     // stars[s][7] = pot_en_shared;
+//     // #pragma omp barrier
+//   }
+// }
+
 void output_stars(){
+  // Potential energy by summing
+  for (int s = 0; s <num_stars_eff; s++){
+    double pot_en=0;
+    int k0_cell = PointsSS*world_rank - nghost;
+    #pragma omp parallel for collapse (3) reduction (+:pot_en)
+    for (int i = 0; i <PointsS; i++)
+      for (int j = 0; j <PointsS; j++)
+        for (int k = nghost; k <PointsSS+nghost; k++){ // CHANGE FOR MPI
+          double distance = sqrt(pow(stars[s][1]-deltaX*i,2)+pow(stars[s][2]-deltaX*j,2)
+                + pow(stars[s][3]-deltaX*(k+k0_cell),2)+soften_param);
+          double mass = pow(deltaX,3)* (pow(psi[0][i][j][k],2) + pow(psi[1][i][j][k],2));
+          pot_en+= -mass/4/M_PI/distance; 
+        }
+    #pragma omp barrier
+    // Actually, potential energy computation should happen in only one node, but this is the best I could
+    // come up with; for future, I can make such that this is called only on snapshots
+    double pot_en_shared;  
+    if(mpi_bool==true){
+      MPI_Allreduce(&pot_en, &pot_en_shared, 1, MPI_DOUBLE, MPI_SUM,MPI_COMM_WORLD);
+    }
+    else {
+      pot_en_shared=pot_en;
+    }
+    stars[s][7] = pot_en_shared;
+  }
   if(world_rank==0){
     print2(stars, stars_filename);
     stars_filename<<"\n"<<","<<flush;
@@ -195,19 +359,19 @@ void get_star_backup(){
 }
 
 void out_star_backup(){
-    ofstream file_star_backup;
-    file_star_backup.open(outputname+"star_backup.txt"); 
-    file_star_backup.setf(ios_base::fixed);
-    int Nx=stars.shape()[0];
-    int Ny=stars.shape()[1];
-    for(int s = 0;s < Nx; s++){
-      for(int l = 0;l < Ny; l++){
-        file_star_backup<< scientific << stars[s][l];
-        if(s!=(Nx-1) || l!=(Nx-1)) //If it is not the last one
-          file_star_backup<< " ";
-      }
+  ofstream file_star_backup;
+  file_star_backup.open(outputname+"star_backup.txt"); 
+  file_star_backup.setf(ios_base::fixed);
+  int Nx=stars.shape()[0];
+  int Ny=stars.shape()[1];
+  for(int s = 0;s < Nx; s++){
+    for(int l = 0;l < Ny; l++){
+      file_star_backup<< scientific << stars[s][l];
+      if(s!=(Nx-1) || l!=(Ny-1)) //If it is not the last one
+        file_star_backup<< " ";
     }
-    file_star_backup.close();
+  }
+  file_star_backup.close();
 }
 
 void open_filestars(){

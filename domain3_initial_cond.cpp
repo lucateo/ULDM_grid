@@ -69,6 +69,29 @@ void domain3::setTest(){
   info_initial_cond<<"Test" << endl;
 }
 
+// Uniform density sphere for test purposes, od density rho0 and radius rad
+void domain3::uniform_sphere(double rho0, double rad){
+  int center = (int) PointsS / 2; // The center of the grid, more or less
+  int extrak= PointsSS*world_rank -nghost; // Take into account the node where you are. If mpi==false, world rank and nghost are initialized to 0
+  if (first_initial_cond == true){ 
+    info_initial_cond.open(outputname+"initial_cond_info.txt");
+    first_initial_cond = false;
+  }
+  else info_initial_cond.open(outputname+"initial_cond_info.txt", ios_base::app);
+  info_initial_cond<<"Uniform_sphere " << rho0 << " " << rad << endl;
+  #pragma omp parallel for collapse(3) //not sure whether this is parallelizable
+    for(int i=0;i<PointsS;i++){
+      for(int j=0; j<PointsS;j++){
+        for(int k=nghost; k<PointsSS+nghost;k++){
+          // Distance from the center of the soliton
+          double radius = deltaX * sqrt( pow( abs(i - center),2) + pow( abs(j - center),2) + pow( abs(k + extrak - center),2));
+          if (radius < rad)
+            psi[0][i][j][k] += sqrt(rho0);
+        }
+      }
+    }
+  #pragma omp barrier
+}
 
 // sets many solitons as initial condition, with random core radius whose centers are confined in a box of length length_lim
 void domain3::setManySolitons_random_radius(int num_Sol, double min_radius, double max_radius, double length_lim, int whichF){

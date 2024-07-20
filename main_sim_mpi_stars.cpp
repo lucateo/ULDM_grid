@@ -230,6 +230,51 @@ int main(int argc, char** argv){
         cout<<"You need 1 argument to pass to the code: rc" << endl;
     }
   }
+
+  else if (initial_cond == "uniform_sphere_test" ) {// Uniform sphere for test purposes
+    if (params_initial_cond.size() > 0){
+      outputname= "out_stars/stars_sphere"+outputname;
+      double rho0 = stod(params_initial_cond[0]); // central density
+      double rad = stod(params_initial_cond[1]); // radius uniform sphere
+      outputname = outputname + "rho0_"+to_string(rho0)+ "_rad_"+to_string(rad) +"_Nstars_"+to_string(num_stars) + "_";
+      
+      multi_array<double, 2> stars_arr(extents[num_stars][8]);
+      if(start_from_backup=="false"){
+        ifstream infile = ifstream("stars_input.txt");
+        int l = 0;
+        int star_i = 0;
+        string temp;
+        while (std::getline(infile, temp, ' ')) {
+          double num = stod(temp);
+          if(l<8){ // loop over single star feature; 8-th entry is potential energy, which I set to zero in initial conditions
+            stars_arr[star_i][l] = num;
+            cout<< stars_arr[star_i][l] << " " << star_i << " " << l << endl;
+            l++;
+          }
+          if(l==8){ // loop over
+            star_i++;
+            l=0;
+          }
+        }
+        D3.put_initial_stars(stars_arr);
+      }
+      D3.set_output_name(outputname);
+      D3.set_ratio_masses(ratio_mass);
+      if(start_from_backup=="true"){
+        D3.initial_cond_from_backup();
+        D3.get_star_backup();
+      }
+      else{
+          D3.uniform_sphere(rho0, rad);
+        }
+    }
+    else{
+      run_ok=false; 
+      if (world_rank==0)
+        cout<<"You need 2 arguments to pass to the code: rho0, rc" << endl;
+    }
+  }
+
   // Testing external potential, here I change the step_fourier function to put all the time an external potential
   else if (initial_cond == "test" ) { 
       outputname= "out_stars/test"+outputname;
