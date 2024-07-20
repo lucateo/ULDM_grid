@@ -110,7 +110,7 @@ double domain3::e_kin_full1(int whichPsi){//Full kinetic energy with Fourier
 // finding the center of mass velocity of center of mass velocities in post-processing.
 double domain3::v_center_mass(int coordinate, int whichF){
   double mass=total_mass(whichF); 
-  double locV= ratio_mass[whichF]* fgrid.v_center_mass_FT(psi,Length,nghost,whichF, coordinate) / mass;
+  double locV= fgrid.v_center_mass_FT(psi,Length,nghost,whichF, coordinate) / (mass * ratio_mass[whichF]);
   double totV;
   // gather all the locV for all processes, sums them (MPI_SUM) and returns totV 
   if(mpi_bool==true){
@@ -447,6 +447,7 @@ void domain3::solveConvDif(){
       }
       else if (compare_energy_running < 1E-9) {
         dt = dt*1.5; // If it remains stuck to an incredibly low dt, try to unstuck it
+      if (world_rank==0)
         cout<<"Unstucking, count energy " << count_energy << " switch energy count " << switch_en_count 
           << " --------------------------------------------------------------------------------------------------------------------"<<endl;
       }

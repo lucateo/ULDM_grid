@@ -64,6 +64,11 @@ void domain3::setInitialSoliton_1(double r_c, int whichpsi){ // sets 1 soliton i
   #pragma omp barrier
 }
 
+void domain3::setTest(){
+  info_initial_cond.open(outputname+"initial_cond_info.txt");
+  info_initial_cond<<"Test" << endl;
+}
+
 
 // sets many solitons as initial condition, with random core radius whose centers are confined in a box of length length_lim
 void domain3::setManySolitons_random_radius(int num_Sol, double min_radius, double max_radius, double length_lim, int whichF){
@@ -403,8 +408,9 @@ void domain3::setEddington(Eddington *eddington, int numpoints, double radmin, d
   double ratiomass, int num_k, bool simplify_k, int center_x, int center_y,int center_z){
   // If simplify_k is true, then it inserts the random phases as gaussians on |k|; if false, then it inserts the random phases
   // in every \vec{k} point. num_k is the total number of k points you run the nested loop over (to speed up computation), put 16 or 32
-  // If the profile does not have analytic formulas for f(E), and potential profile \neq density profile, compute it numerically
-  if (eddington->analytic_Eddington == false || eddington->same_profile_den_pot ==false){ 
+  // If the profile does not have analytic formulas for f(E), or potential profile \neq density profile, or there are multiple profiles,
+  // compute it numerically
+  if ((eddington->analytic_Edd[0] == false || eddington->same_profile_den_pot ==false) || eddington->analytic_Edd.size()>1){ 
     eddington->compute_d2rho_dpsi2_arr(numpoints, radmin, radmax);
     eddington->compute_fE_arr();
     cout<<"Finished computing numeric f(E) for Eddington initial conditions"<<endl;
@@ -417,16 +423,14 @@ void domain3::setEddington(Eddington *eddington, int numpoints, double radmin, d
       }
     }
   }
-  Profile *profile = eddington->get_profile_pot();
-  Profile *profile_den = eddington->get_profile_den();
   srand(time(NULL)); // Initialize the random seed for random phases
   
   int extrak= PointsSS*world_rank -nghost; // Take into account the node where you are
   
   // Maximum kmax for phases initialization
-  int kmax_phases = min(int(PointsS/2),int (ceil(sqrt(2*profile->Psi(radmin)) * Length*ratiomass/(2*M_PI) ) ) );
+  int kmax_phases = min(int(PointsS/2),int (ceil(sqrt(2*eddington->psi_potential(radmin)) * Length*ratiomass/(2*M_PI) ) ) );
   // Maximum k allowed given the potential
-  int kmax_global = int (ceil(sqrt(2*profile->Psi(radmin)) * Length*ratiomass/(2*M_PI) ) );
+  int kmax_global = int (ceil(sqrt(2*eddington->psi_potential(radmin)) * Length*ratiomass/(2*M_PI) ) );
   // If kmax_global is too big, skips some k to speed up the initialization
   int num_k_real = min(int(PointsS/2), num_k); // The total number of k should not surpass PointsS/2
   // int num_k_real = num_k; 
@@ -444,23 +448,30 @@ void domain3::setEddington(Eddington *eddington, int numpoints, double radmin, d
     }
     else info_initial_cond.open(outputname+"initial_cond_info.txt", ios_base::app);
     info_initial_cond.setf(ios_base::fixed); 
-    info_initial_cond<<profile->name_profile;
-    for(int i = 0; i < profile->params.size(); i++){
-      info_initial_cond<<" "<<profile->params_name[i]<<" "<<profile->params[i];
+    for (int id_prof=0; id_prof< eddington->profile_pot_size(); id_prof++){
+      info_initial_cond<<eddington->get_profile_pot(id_prof)->name_profile;
+      for(int i = 0; i < eddington->get_profile_pot(id_prof)->params.size(); i++){
+        info_initial_cond<<" "<<eddington->get_profile_pot(id_prof)->params_name[i]<<" "
+          <<eddington->get_profile_pot(id_prof)->params[i] << " ";
+      }
     } 
-    info_initial_cond<<" ratio_mass "<< ratiomass << " " << num_k << " " <<simplify_k << " " << center_x
+    info_initial_cond<<"ratio_mass "<< ratiomass << " " << num_k << " " <<simplify_k << " " << center_x
         << " " << center_y << " " << center_z;
     
     //If the density profile does not fully source the potential, print information about it as well
     if(eddington->same_profile_den_pot==false){
-      info_initial_cond<<" " << profile_den->name_profile <<"__density";
-      for(int i = 0; i < profile_den->params.size(); i++){
-        info_initial_cond<<" "<<profile_den->params_name[i]<<" "<<profile_den->params[i];
+      for (int id_prof=0; id_prof< eddington->profile_den_size(); id_prof++){
+        info_initial_cond<<" " << eddington->get_profile_den(id_prof)->name_profile <<"__density";
+      for(int i = 0; i < eddington->get_profile_den(id_prof)->params.size(); i++){
+        info_initial_cond<<" "<<eddington->get_profile_den(id_prof)->params_name[i]
+          <<" "<<eddington->get_profile_den(id_prof)->params[i];
       } 
     }
     info_initial_cond<<endl;
     info_initial_cond.close();
-    cout<< "kmax global for Eddington initial conditions: "<< kmax_global<<" "<< sqrt(2*profile->Psi(radmin)) *ratiomass* Length/(2*M_PI)  <<endl;
+    cout<< "kmax global for Eddington initial conditions: "<< kmax_global<<" "
+      << sqrt(2*eddington->psi_potential(radmin)) *ratiomass* Length/(2*M_PI)  <<endl;
+    }
   }
   vector<double> phases_send(int(pow(2*num_k_real,3)), 0);
   random_device rd;
@@ -521,7 +532,7 @@ void domain3::setEddington(Eddington *eddington, int numpoints, double radmin, d
         
         // ceil rounds up to nearest integer; this is the "local" maximum k, given Psi(r)
         // int kmax = min(int(PointsS/2), int(ceil(sqrt(2*profile->Psi(distance)) * Length/(2*M_PI) ) ));
-        int kmax = int (ceil(sqrt(2*profile->Psi(distance)) * ratiomass * Length/(2*M_PI) ) );
+        int kmax = int (ceil(sqrt(2*eddington->psi_potential(distance)) * ratiomass * Length/(2*M_PI) ) );
         // Get to the closest, rounded up, k vector allowed by the num_k splitting; it has to be divisible by skip_k
         if(kmax%skip_k != 0) {
           kmax = kmax + skip_k- (kmax % skip_k); 
@@ -535,7 +546,7 @@ void domain3::setEddington(Eddington *eddington, int numpoints, double radmin, d
                 double vv = sqrt(v1*v1 + v2*v2 + v3*v3); // |k_f|
                 double vx = Length/PointsS*(v1*i + v2*j + v3*(k+extrak)); 
                 double vtilde = 2*M_PI/ratiomass/Length *vv;// taking into account the ratio_mass r, to ensure periodic boundary conditions
-                double E = profile->Psi(distance) - pow(vtilde,2)/2; // You have to ensure E > 0, for bound system
+                double E = eddington->psi_potential(distance) - pow(vtilde,2)/2; // You have to ensure E > 0, for bound system
                 // if (klow == true && (kmax==kmax_global && vv ==0)){//do the low k sum on 20 points, exploiting spherical symmetry on kf_here
                 //   double fe = eddington->fE_func(E);
                 //   for (int kl=0; kl < 20; kl++){
@@ -565,7 +576,7 @@ void domain3::setEddington(Eddington *eddington, int numpoints, double radmin, d
         else if (simplify_k ==true ){
           for(int vv=0; vv<kmax; vv++){
             double vtilde = 2*M_PI/Length *vv;
-            double E = profile->Psi(distance) - pow(vtilde,2)/2; // You have to ensure E > 0, for bound system
+            double E = eddington->psi_potential(distance) - pow(vtilde,2)/2; // You have to ensure E > 0, for bound system
             if (E >0){
               double fe = eddington->fE_func(E);
               double psi_point = pow(2*M_PI/Length, 3./2)*sqrt(fe);

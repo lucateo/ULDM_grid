@@ -171,8 +171,8 @@ class Hernquist: public Profile{
 class Eddington{
   protected:
     // I need pointers if I am using pure virtual functions
-    Profile * profile_potential; // Profile for the potential
-    Profile * profile_density; // Profile for the density
+    vector<Profile *> profiles_potential; // Profiles for the potential
+    vector<Profile *> profiles_density; // Profiles for the density
     int numpoints;
     vector<double> d2rhodpsi2_arr; // Interpolating array
     vector<double> psi_arr; // Interpolating array, psi
@@ -187,31 +187,57 @@ class Eddington{
     bool same_profile_den_pot; 
     // if true, it means there are analytic formulas for profile_potential, which will be used
     // if same_profile_den_pot is true as well   
-    bool analytic_Eddington;
+    vector<bool> analytic_Edd;
     
-    Eddington(Profile * profile_pot, Profile * profile_den, bool same_prof_den):
-      profile_potential(profile_pot), profile_density(profile_den), same_profile_den_pot(same_prof_den) 
-      {analytic_Eddington = profile_pot->analytic_Eddington;};
+    Eddington(bool same_prof_den):
+      same_profile_den_pot(same_prof_den) 
+      {};
     Eddington() {};
     ~Eddington() {};
+    void set_profile_den(Profile * Profile) { profiles_density.push_back(Profile);}
+    void set_profile_pot(Profile * Profile) { 
+      profiles_potential.push_back(Profile);
+      analytic_Edd.push_back(Profile->analytic_Eddington);
+    }
+    int profile_den_size() {return profiles_density.size();}
+    int profile_pot_size() {return profiles_potential.size();}
+    // Returns the i-th profile used for the total potential
+    Profile* get_profile_pot(int i) {return profiles_potential[i];}
+    // Returns the i-th profile used for the relevant density
+    Profile* get_profile_den(int i) {return profiles_density[i];}
+    double profile_density(double radius){
+      double density = 0;
+      for(int i=0; i<profiles_density.size();i++){
+        density += profiles_density[i]->density(radius);
+      }
+      return density;
+    }
+    double psi_potential(double radius){
+      double psi = 0;
+      for(int i=0; i<profiles_potential.size();i++){
+        psi = psi+ profiles_potential[i]->Psi(radius);
+      }
+      return psi;
+    }
+
     void compute_d2rho_dpsi2_arr(int numpoints, double rmin, double rmax){
       vector<double> rho_arr;
       vector<double> psiarr;
       rmin = 0.9*rmin; // Ensure that the maximum energy is never surpassed in the actual run
       // First point
       double radius = pow(10, (log10(rmax) -log10(rmin))/(numpoints-1) * (numpoints-1) +log10(rmin) ); // Log spaced
-      rho_arr.push_back(profile_density->density(radius));
-      psiarr.push_back(profile_potential->Psi(radius));
+      rho_arr.push_back(profile_density(radius));
+      psiarr.push_back(psi_potential(radius));
       int j = 0; // Index of the just filled array, it can be different from i, defined next
       // The remaining points
       for(int i = 1; i < numpoints;i++){
         // double radius = (1E3 - 1E-3)/numpoints * i + 1E-3; // Linear
         // Go with inverse order, ordering psi from smallest to largest
         double radius = pow(10, (log10(rmax) -log10(rmin))/(numpoints-1) * (numpoints-1-i) +log10(rmin) ); // Log spaced
-        double psi = profile_potential->Psi(radius);
+        double psi = psi_potential(radius);
         if(abs((psi - psiarr[j])/(psi + psiarr[j])) > 1E-7){ // If the relative change is larger than 1e-7, accept the point (to avoid very tiny changes in psi)
-          rho_arr.push_back(profile_density->density(radius));
-          psiarr.push_back(profile_potential->Psi(radius));
+          rho_arr.push_back(profile_density(radius));
+          psiarr.push_back(psi_potential(radius));
           j++;
         }
       }
@@ -221,8 +247,6 @@ class Eddington{
     vector<double>  get_psiarr() {return psi_arr;}
     vector<double>  get_fE_arr() {return FE_arr;}
     vector<double>  get_d2rho_arr() {return d2rhodpsi2_arr;}
-    Profile* get_profile_pot() {return profile_potential;}
-    Profile* get_profile_den() {return profile_density;}
 
     void compute_fE_arr(){
       int Ndim = psi_arr.size();
@@ -250,9 +274,13 @@ class Eddington{
     double d2rho_dpsi2(double psi){
       double result;
       int Nx = psi_arr.size();
-      if(analytic_Eddington ==true && same_profile_den_pot==true) {result=profile_potential->analytic_d2rho_dpsi(psi);}
+      // Use analytic results only if I am dealing with a single profile, and if the potential is entirely sourced by the target density
+      if((analytic_Edd[0] ==true && same_profile_den_pot==true) && analytic_Edd.size()==1) 
+      {
+        result=profiles_potential[0]->analytic_d2rho_dpsi(psi);
+      }
       else if (psi>psi_arr[Nx-1] && same_profile_den_pot==true)
-        result=profile_potential->analytic_small_radius(psi);
+        result=profiles_potential[0]->analytic_small_radius(psi);
       else
         result=interpolant(psi, psi_arr, d2rhodpsi2_arr);
       return result;
@@ -261,9 +289,10 @@ class Eddington{
     double fE_func(double E){
       double result;
       int Nx = psi_arr.size();
-      if(analytic_Eddington ==true && same_profile_den_pot==true) 
+      // Use analytic results only if I am dealing with a single profile, and if the potential is entirely sourced by the target density
+      if((analytic_Edd[0] ==true && same_profile_den_pot==true) && analytic_Edd.size()==1) 
       {
-        result=profile_potential->analytic_fE(E);
+        result=profiles_potential[0]->analytic_fE(E);
       }
       else if (E<=psi_arr[Nx-1] && E>=psi_arr[0])
         result=interpolant(E, psi_arr, FE_arr);

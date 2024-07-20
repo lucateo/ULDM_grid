@@ -286,8 +286,10 @@ int main(int argc, char** argv){
       if(start_from_backup=="true")
         D3.initial_cond_from_backup();
       else{
-        NFW profile = NFW(rs, rhos, Length, true);// The actual max radius is between Length and Length/2
-        Eddington eddington = Eddington(&profile, &profile, true);
+        NFW *profile = new NFW(rs, rhos, Length, true);// The actual max radius is between Length and Length/2
+        Eddington eddington = Eddington(true);
+        eddington.set_profile_den(profile);
+        eddington.set_profile_pot(profile);
         D3.setEddington(&eddington, 500, Length/Nx, Length, 1, ratio_mass[1], num_k,boolk,center,center,center); // The actual max radius is between Length and Length/2
         D3.setInitialSoliton_1(rc, 0);
       }
@@ -346,8 +348,10 @@ int main(int argc, char** argv){
             int index_field;
             if(i!=0) index_field =j+ i*nprofile_per_mass[i-1];
             else  index_field =j;
-            NFW profile = NFW(rs[index_field], rhos[index_field], Length, true);// The actual max radius is between Length and Length/2
-            Eddington eddington = Eddington(&profile, &profile, true);
+            NFW *profile = new NFW(rs[index_field], rhos[index_field], Length, true);// The actual max radius is between Length and Length/2
+            Eddington eddington = Eddington(true);
+            eddington.set_profile_den(profile);
+            eddington.set_profile_pot(profile);
             D3.setEddington(&eddington, 500, Length/Nx, Length, i, ratio_mass[i], num_k, boolk,
                 center_x[index_field], center_y[index_field], center_z[index_field]); // The actual max radius is between Length and Length/2
           }
@@ -402,9 +406,11 @@ int main(int argc, char** argv){
       else{
         for(int i = 0; i < num_halos; i++){
           for(int j=0; j<num_fields;j++){
-            NFW profile_pot = NFW(rs[i], rhos[i], Length, true);// The actual max radius is between Length and Length/2
-            NFW profile_den = NFW(rs[i], density_percentage[j]*rhos[i], Length, true);// The actual max radius is between Length and Length/2
-            Eddington eddington = Eddington(&profile_pot, &profile_den, false);
+            NFW *profile_pot = new NFW(rs[i], rhos[i], Length, true);// The actual max radius is between Length and Length/2
+            NFW *profile_den = new NFW(rs[i], density_percentage[j]*rhos[i], Length, true);// The actual max radius is between Length and Length/2
+            Eddington eddington = Eddington(false);
+            eddington.set_profile_den(profile_den);
+            eddington.set_profile_pot(profile_pot);
             D3.setEddington(&eddington, 500, Length/Nx, Length, j, ratio_mass[j], num_k, boolk,
                 center_x[i], center_y[i], center_z[i]); // The actual max radius is between Length and Length/2
           }
@@ -434,8 +440,10 @@ int main(int argc, char** argv){
       
       D3.set_output_name(outputname);
       D3.set_ratio_masses(ratio_mass);
-      Plummer profile = Plummer(rs, m0, Length, true);// The actual max radius is between Length and Length/2
-      Eddington eddington = Eddington(&profile, &profile, true);
+      Plummer *profile = new Plummer(rs, m0, Length, true);// The actual max radius is between Length and Length/2
+      Eddington eddington = Eddington(true);
+      eddington.set_profile_den(profile);
+      eddington.set_profile_pot(profile);
       if(start_from_backup=="true")
         D3.initial_cond_from_backup();
       else
@@ -466,8 +474,10 @@ int main(int argc, char** argv){
       
       D3.set_output_name(outputname);
       D3.set_ratio_masses(ratio_mass);
-      NFW profile = NFW(rs, rhos, Length, true);// The actual max radius is between Length and Length/2
-      Eddington eddington = Eddington(&profile, &profile, true);
+      NFW *profile = new NFW(rs, rhos, Length, true);// The actual max radius is between Length and Length/2
+      Eddington eddington = Eddington(true);
+      eddington.set_profile_den(profile);
+      eddington.set_profile_pot(profile);
       
       if(start_from_backup=="true")
         D3.initial_cond_from_backup();

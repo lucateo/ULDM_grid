@@ -33,10 +33,14 @@ extern double shift(float i, float N);
 extern double P_spec(double k2, double Np);
 // cyclic boundary conditions
 extern int cyc(int ar, int le);
+// cyclic boundary conditions with doubles
+extern double cyc_double(double ar, double le);
 // 3 point order derivative, mostly for computing kinetic energy
 extern double derivative_3point(double f1_plus, double f1_minus, double f2_plus, 
                                 double f2_minus, double f3_plus, double f3_minus);
-  
+// 3D linear interpolation
+extern double linear_interp_3D(multi_array<double, 1> x_compute, multi_array<int, 2> xii, 
+    multi_array<double,3> fii, double deltax);  
 // Soliton profile in grid units
 extern double psi_soliton(double r_c, double r, double ratio);
 
@@ -223,6 +227,12 @@ class Fourier{
     //function for the center of mass velocity using the FT
     // note this does not sum up the values on different nodes
     double v_center_mass_FT(multi_array<double,4> &psi, double Length,int nghost, int whichPsi, int coordinate);
+    // Transfer Phi gradient on array arr[3][Nx][Nx][Nx]
+    void transfer_arr(multi_array<double,4> &arr, int which_coord, double factor);
+    // Inputs the Potential Phi, which is already stored
+    void input_potential(multi_array<double,3> &Phi_in); 
+    // Function for computing Phi gradients in Fourier space (and back)
+    void kPhi_FT(multi_array<double,3> &Phi_in,multi_array<double,4> &arr, double Length);
 };
 
 
@@ -354,6 +364,8 @@ class domain3{
       virtual void exportValues();
       
       //////////////// Initial conditions functions, defined in domain3_initial_cond.cpp ////////////////
+      // Just test, put empty initial conditions file
+      void setTest();
       // Initial condition with waves, test purposes
       void initial_waves(int whichF);
       // Sets one soliton in the center of the box

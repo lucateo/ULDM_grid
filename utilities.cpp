@@ -30,6 +30,18 @@ int cyc(int ar, int le){ // ar is the index where you compute something, le is t
 return ar;
 }
 
+// Cyclic boundary conditions with double
+double cyc_double(double ar, double le){ // ar is the index where you compute something, le is the size of the grid.
+    if(ar>= le){ // if ar > le, meaning you overshoot the grid dimensions, you go (for periodic boundary
+        ar=ar-le; // conditions) to the other side of the grid
+    }
+    else if(ar< 0){
+        ar=ar+le;
+    }
+return ar;
+}
+
+
 // 3 point order derivative, mostly for computing kinetic energy
 double derivative_3point(double f1_plus, double f1_minus, double f2_plus, double f2_minus, double f3_plus, double f3_minus){
   double m1 = (f1_plus - f1_minus)/2.0;
@@ -53,6 +65,7 @@ double psi_soliton(double r_c, double r, double ratio){
 
 vector<double> num_second_derivative(vector<double> & xarr, vector<double> & yarr){
   int Ndim = xarr.size();
+  cout<< Ndim << endl;
   vector<double> result(Ndim-2);
   for(int i=1; i< Ndim-1; i++){ // avoid boundaries
     double der = yarr[i+1]*(xarr[i] - xarr[i-1]) + yarr[i-1]*(xarr[i+1] - xarr[i]) - yarr[i]*(xarr[i+1]- xarr[i-1]);
@@ -184,4 +197,36 @@ void transferghosts( multi_array<double,4> &gr,int ii, int world_rank, int world
         sendg(gr,ii,world_rank,world_size,dir,nghost);
     }
     }
+}
+
+// xii is grid point int, need to multiply by deltax when computing interpolation
+double linear_interp_3D(multi_array<double, 1> x_compute, multi_array<int, 2> xii, 
+    multi_array<double,3> fii, double deltax){
+  int n_points=xii.shape()[0]; // Number of interpolating points, which should be 2
+  int dims=xii.shape()[1]; // Number of dimensions
+  double denominator = 1;
+  for(int i=0;i<dims; i++){
+    denominator = denominator * (xii[1][i]-xii[0][i]);
+  }
+  // I follow wikipedia article for trilinear interpolation
+  // Remember that xii are integers (grid points), multiply by deltax to recover the physical one
+  double xd = (x_compute[0] - deltax*xii[0][0] )/(xii[1][0]-xii[0][0])/deltax;
+  double yd = (x_compute[1] - deltax*xii[0][1] )/(xii[1][1]-xii[0][1])/deltax;
+  double zd = (x_compute[2] - deltax*xii[0][2] )/(xii[1][2]-xii[0][2])/deltax;
+  double c00 = fii[0][0][0]*(1-xd) +fii[1][0][0]*xd;
+  double c01 = fii[0][0][1]*(1-xd) +fii[1][0][1]*xd;
+  double c10 = fii[0][1][0]*(1-xd) +fii[1][1][0]*xd;
+  double c11 = fii[0][1][1]*(1-xd) +fii[1][1][1]*xd;
+  double c0 = c00*(1-yd) +c10*yd;
+  double c1 = c01*(1-yd) + c11*yd;
+  return c0*(1-zd) +c1*zd;
+  // double num1= (deltax*xii[1][0] - x_compute[0])*(deltax*xii[1][1] - x_compute[1])*(deltax*xii[1][2] - x_compute[2])*fii[0][0][0];
+  // double num2= (-deltax*xii[0][0] + x_compute[0])*(deltax*xii[1][1] - x_compute[1])*(deltax*xii[1][2] - x_compute[2])*fii[1][0][0];
+  // double num3= (deltax*xii[1][0] - x_compute[0])*(-deltax*xii[0][1] + x_compute[1])*(deltax*xii[1][2] - x_compute[2])*fii[0][1][0];
+  // double num4= (-deltax*xii[0][0] + x_compute[0])*(-deltax*xii[0][1] + x_compute[1])*(deltax*xii[1][2] - x_compute[2])*fii[1][1][0];
+  // double num5= (deltax*xii[1][0] - x_compute[0])*(deltax*xii[1][1] - x_compute[1])*(-deltax*xii[0][2] + x_compute[2])*fii[0][0][1];
+  // double num6= (-deltax*xii[0][0] + x_compute[0])*(deltax*xii[1][1] - x_compute[1])*(-deltax*xii[0][2] + x_compute[2])*fii[1][0][1];
+  // double num7= (deltax*xii[1][0] - x_compute[0])*(-deltax*xii[0][1] + x_compute[1])*(-deltax*xii[0][2] + x_compute[2])*fii[0][1][1];
+  // double num8= (-deltax*xii[0][0] + x_compute[0])*(-deltax*xii[0][1] + x_compute[1])*(-deltax*xii[0][2] + x_compute[2])*fii[1][1][1];
+  // return (num1+num2+num3+num4+num5+num6+num6+num7+num8)/denominator;
 }

@@ -1,6 +1,7 @@
 #ifndef ULDM_STARS_H
 #define ULDM_STARS_H
 #include "uldm_mpi_2field.h"
+#include "eddington.h"
 #include <boost/multi_array.hpp>
 #include <cmath>
 #include <fstream>
@@ -13,12 +14,13 @@ class domain_stars: public domain3
     // double soften_param = deltaX/2; // Maybe better putting something related to deltaX?
     multi_array<double,2> stars;
     ofstream stars_filename;
+    int num_stars_eff; // Effective number of stars
   public:
     domain_stars(size_t PS,size_t PSS, double L, int nfields, int Numsteps, double DT, int Nout, int Nout_profile, 
             int pointsm, int WR, int WS, int Nghost, bool mpi_flag, int num_stars):
       domain3{PS, PSS, L, nfields, Numsteps, DT, Nout, Nout_profile, 
-          pointsm, WR, WS, Nghost, mpi_flag} , stars(extents[num_stars][7])
-      { };
+          pointsm, WR, WS, Nghost, mpi_flag} , stars(extents[num_stars][8])
+      { num_stars_eff = num_stars; };
     domain_stars() { }; // Default constructor
     ~domain_stars() { };
 
@@ -42,7 +44,7 @@ vector<double> acceleration_from_point(int i, int j, int k, double x, double y, 
 }
 
 void step_stars(){
-  for (int s = 0; s <stars.size(); s++){
+  for (int s = 0; s <num_stars_eff; s++){
     // Leapfrog second order, ADAPTIVE STEP NOT IMPLEMENTED
     double x = stars[s][1]+ 0.5*dt*stars[s][4];
     double y = stars[s][2]+ 0.5*dt*stars[s][5];
@@ -79,14 +81,122 @@ void step_stars(){
   }
 }
 
+void step_stars_fourier(){
+  multi_array<double,4> arr(extents[3][PointsS][PointsS][PointsSS]);
+  // #pragma omp parallel for collapse (3)
+  // for (int i = 0; i <PointsS; i++)
+  //   for (int j = 0; j <PointsS; j++)
+  //     for (int k = 0; k <PointsSS; k++){ // CHANGE FOR MPI
+  //       double rad = sqrt(pow(cyc(i-PointsS/2,PointsS),2)
+  //         +pow(cyc(j-PointsS/2,PointsS),2)+pow(cyc(k-PointsS/2,PointsS),2));
+  //       double value;
+  //       if (rad < 2) value = -0.54/8*pow(rad*deltaX,2);
+  //       else  value= -0.54/deltaX /rad;
+  //       Phi[i][j][k] = value;
+  //       // if (value>1) cout<< "Exceeds " << value << " " << i << " " << j << " " << k << endl;
+  //     }
+  // #pragma omp barrier
+
+  fgrid.kPhi_FT(Phi, arr, Length);
+  // #pragma omp parallel for collapse (4)
+  // for(int coord=0;coord<3;coord++)
+  // for (int i = 0; i <PointsS; i++)
+  //   for (int j = 0; j <PointsS; j++)
+  //     for (int k = 0; k <PointsSS; k++){ // CHANGE FOR MPI
+  //       if (arr[coord][i][j][k]>1) cout<< "Exceeds " <<arr[coord][i][j][k]  << " " << i << " " << j << " " << k << endl;
+  //     }
+  // #pragma omp barrier
+  // cout << "Arr " << arr[0][30][30][30] << endl;
+  multi_array<double,1> x_compute(extents[3]);
+  multi_array<int,2> xii(extents[2][3]);
+  multi_array<double,3> fii(extents[2][2][2]);
+  // #pragma omp parallel for collapse(1)
+  for (int s = 0; s <num_stars_eff; s++){
+    // cout<< "Num star " << s << endl;
+    // Leapfrog second order, ADAPTIVE STEP NOT IMPLEMENTED
+    for(int i=0; i<3;i++){
+      double coord_comp = cyc_double(stars[s][i+1]+ 0.5*dt*stars[s][i+4],Length);
+      // cout << "coord comp " << coord_comp << endl;
+      xii[0][i] = floor(coord_comp/deltaX);
+      // cout << "coord 1 " << xii[0][i] << endl;
+      // Avoid that the 2 grid interpolating point share one coordinate exactly
+      xii[1][i] = ceil(coord_comp/deltaX+1E-10); 
+      // cout << "coord 2 " << xii[1][i] << endl;
+      x_compute[i] = coord_comp;
+      // cout<< xii[0][i] << " " << xii[1][i] << " " << x_compute[i] << endl;
+    }
+    for(int coord=0; coord<3; coord++){
+      for(int i1 =0;i1<2;i1++)
+        for(int i2 =0;i2<2;i2++)
+          for(int i3 =0;i3<2;i3++){
+            fii[i1][i2][i3] = arr[coord][cyc(xii[i1][0],PointsS)][cyc(xii[i2][1],PointsS)][cyc(xii[i3][2],PointsS)];
+      // cout<< fii[i1][i2][i3] << " " << xii[i1][0] << " "<< xii[i2][1]<< " "<< xii[i3][2]<<" "<<endl; 
+          }
+          // cout<< endl;
+      stars[s][coord+4]= stars[s][coord+4] - linear_interp_3D(x_compute, xii,fii, deltaX)*dt;
+    }
+    stars[s][1] = cyc_double(stars[s][1] + dt*stars[s][4]/2, Length);
+    stars[s][2] = cyc_double(stars[s][2] + dt*stars[s][5]/2, Length);
+    stars[s][3] = cyc_double(stars[s][3] + dt*stars[s][6]/2, Length);
+    
+    // Potential energy of the particle
+    for(int i=0; i<3;i++){
+      xii[0][i] = floor(stars[s][1+i]/deltaX);
+      // Avoid that the 2 grid interpolating point share one coordinate exactly
+      xii[1][i] = ceil((stars[s][1+i]/deltaX+1E-10));
+      x_compute[i] = stars[s][i+1];
+      // cout<< deltaX*xii[0][i] << " " << deltaX*xii[1][i] << " " << x_compute[i] << endl;
+    }
+    for(int i1 =0;i1<2;i1++)
+      for(int i2 =0;i2<2;i2++)
+        for(int i3 =0;i3<2;i3++){
+  // cout<<"Here ?" << Phi[12][32][32] << " " << xii[i1][0]<< " " <<xii[i1][1]<< " " <<xii[i1][2]<< " " << endl;
+          fii[i1][i2][i3] = Phi[cyc(xii[i1][0],PointsS)][cyc(xii[i2][1],PointsS)][cyc(xii[i3][2],PointsS)];
+      // cout<< fii[i1][i2][i3] << " ";
+        }
+      //  cout<< "x compute, interp " << linear_interp_3D(x_compute, xii,fii, deltaX) << endl;
+    stars[s][7] = stars[s][0]*linear_interp_3D(x_compute, xii,fii, deltaX);
+  }
+  // #pragma omp barrier
+}
+
 void output_stars(){
-  print2(stars, stars_filename);
-  if(world_rank==0) stars_filename<<"\n"<<","<<flush;
+  if(world_rank==0){
+    print2(stars, stars_filename);
+    stars_filename<<"\n"<<","<<flush;
+  }
+}
+
+void get_star_backup(){
+  string star_string_backup = outputname+"star_backup.txt";
+  ifstream infile_star(star_string_backup);
+  int l = 0;
+  int star_i = 0;
+  string temp;
+  while (std::getline(infile_star, temp, ' ')) {
+    double num = stod(temp);
+    if(l<8){ // loop over single star feature
+      stars[star_i][l] = num;
+      // cout<< stars[star_i][l] << " " << star_i << " " << l << endl;
+      l++;
+    }
+    if(l==8){ // loop over
+      star_i++;
+      l=0;
+    }
+  }
+  int Nx=stars.shape()[0];
+  num_stars_eff = Nx;
+  for(int i =0; i<Nx; i++)
+    if(stars[i][0]==0){
+      num_stars_eff = i+1;
+      break;
+    }
 }
 
 void out_star_backup(){
     ofstream file_star_backup;
-    file_star_backup.open(outputname+"star_baxkup.txt"); 
+    file_star_backup.open(outputname+"star_backup.txt"); 
     file_star_backup.setf(ios_base::fixed);
     int Nx=stars.shape()[0];
     int Ny=stars.shape()[1];
@@ -106,11 +216,105 @@ void open_filestars(){
     stars_filename<<"{";   
     stars_filename.setf(ios_base::fixed);
   }
-  else if (world_rank==0 && start_from_backup == false){
+  else if (world_rank==0 && start_from_backup == true){
     stars_filename.open(outputname+"stars.txt", ios_base::app); 
     stars_filename.setf(ios_base::fixed);
   }
 }
+
+// Generate num_stars_eff stars using eddington procedure
+// As of now, I assume that Eddington has only one profile
+multi_array<double, 2> generate_stars(Eddington * eddington, double rmin, double rmax){
+  multi_array<double, 2> stars_arr(extents[num_stars_eff][8]);
+  // Random seed
+  random_device rd;
+  default_random_engine generator(rd()); 
+  normal_distribution<double> distribution(0, 1);
+  vector<double> r_arr; // Interpolating array, random uniform variable
+  vector<double> cumulative_x; // Cumulative of p(x) array
+  int npoints = PointsS;
+  int numpoints_int = 30; // Number of points for the integration
+  Profile *density = eddington->get_profile_den(0);
+
+  // The first bin should be zero
+  r_arr.push_back(0); 
+  cumulative_x.push_back(0); 
+  rmin = 0.9*rmin; // Ensure that the maximum energy is never surpassed in the actual run
+  for(int i=0; i< npoints+1; i++){ // avoid very first bin, which is zero
+    double r = pow(10 ,(log10(rmax) -log10(rmin))/(npoints)* i + log10(rmin));
+    r_arr.push_back(r);
+    double bin = 0;
+    double rmin_int;
+    if(i==0) rmin_int = 0.1*rmin;
+    else rmin_int = r_arr[i];
+    for(int j=0; j< numpoints_int; j++){
+      double r1 = pow(10 ,(log10(r) -log10(rmin_int))/(numpoints_int)* j + log10(rmin_int));
+      double r2 =pow(10 ,(log10(r) -log10(rmin_int))/(numpoints_int)* (j+1) + log10(rmin_int));
+      double dx = r2 - r1;
+      // Use trapezoid integration
+      double dy = density->density(r1)*r1*r1 + density->density(r2)*r2*r2;
+      bin+= 0.5*dx*dy;
+    }
+    cumulative_x.push_back( cumulative_x[i] + bin*4*M_PI/density->mass_rmax(Length/2));
+  }
+
+  for(int i=0; i<num_stars_eff; i++){
+    double rand = fRand(0,1);
+    double x_rand = interpolant(rand, cumulative_x, r_arr);
+    // Find cumulative on velocity
+    vector<double> v_arr; // Interpolating array, random uniform variable
+    vector<double> cumulative_v; // Cumulative of p(v|x) array
+    double vmax =sqrt(2*eddington->psi_potential(x_rand));
+    double vmin = 0.001*vmax;
+    // The first bin should be zero
+    v_arr.push_back(0); 
+    cumulative_v.push_back(0); 
+    for(int i=0; i< npoints+1; i++){ 
+      double v = pow(10 ,(log10(vmax) -log10(vmin))/(npoints)* i + log10(vmin));
+      v_arr.push_back(v);
+      double bin = 0;
+      double vmin_int;
+      if(i==0) vmin_int = 0.1*vmin;
+      else vmin_int = v_arr[i];
+      for(int j=0; j< numpoints_int; j++){
+        double v1 = pow(10 ,(log10(v) -log10(vmin_int))/(numpoints_int)* j + log10(vmin_int));
+        double v2 =pow(10 ,(log10(v) -log10(vmin_int))/(numpoints_int)* (j+1) + log10(vmin_int));
+        double dx = v2 - v1;
+        // Use trapezoid integration
+        double E1 = eddington->psi_potential(x_rand)- v1*v1/2;
+        double E2 = eddington->psi_potential(x_rand)- v2*v2/2;
+        double dy = eddington->fE_func(E1)*v1*v1 + eddington->fE_func(E2)*v2*v2;
+        bin+= 0.5*dx*dy;
+      }
+      cumulative_v.push_back( cumulative_v[i] + bin*4*M_PI/density->density(x_rand));
+    }
+    double rand2 = fRand(0,1);
+    double v_rand = interpolant(rand2, cumulative_v, v_arr);
+    
+    // Randomize point on the sphere
+    double star[6];
+    for (int k=0;k<6;k++)
+      star[k] = distribution(generator);
+    // Modulus of x
+    double mod_x = sqrt(star[0]*star[0] +star[1]*star[1] +star[2]*star[2]);
+    // Modulus of v
+    double mod_v = sqrt(star[3]*star[3] +star[4]*star[4] +star[5]*star[5]);
+    stars_arr[i][0]=1; // Set the mass to 1
+    cout << "star " << i << " " << x_rand << " " << v_rand << " ";
+    for (int k=1;k<4;k++){
+      // Generate the three x coordinates and center them at the center of the grid
+      stars_arr[i][k] = x_rand*star[k-1]/mod_x + Length/2;
+      cout<< stars_arr[i][k]  << " ";
+    }
+    for (int k=4;k<7;k++){
+      stars_arr[i][k] = v_rand*star[k-1]/mod_v; // Generate the three v coordinates
+      cout<< stars_arr[i][k]  << " ";
+    }
+    cout<<endl;
+  }
+  return stars_arr;
+}
+
 
 // Insert output functions!
 virtual void solveConvDif(){
@@ -126,6 +330,12 @@ virtual void solveConvDif(){
   int stepCurrent=0;
   if (start_from_backup == false){
     tcurrent = 0;
+    // Compute Phi so that I have the initial potential energy
+    fgrid.inputPhi(psi,nghost,nfields);                                     //inputs |psi^2|
+    fgrid.calculateFT();                                              //calculates its FT, FT(|psi^2|)
+    fgrid.kfactorPhi(Length);                                         //calculates -1/k^2 FT(|psi^2|)
+    fgrid.calculateIFT();                                             //calculates the inverse FT
+    fgrid.transferPhi(Phi,1./pow(PointsS,3));                     //transfers the result into the xytzgrid Phi and multiplies it by 1/PS^3
     snapshot(stepCurrent); // I want the snapshot of the initial conditions
     snapshot_profile(stepCurrent);
     output_stars(); 
@@ -137,6 +347,7 @@ virtual void solveConvDif(){
     }
     makestep(stepCurrent,dt);
     tcurrent=tcurrent+dt;
+    // step_stars_fourier();
     step_stars();
     stepCurrent=stepCurrent+1;
   }
@@ -165,34 +376,37 @@ virtual void solveConvDif(){
     }
     makestep(stepCurrent,dt);
     tcurrent=tcurrent+dt;
+    // step_stars_fourier();
     step_stars();
     stepCurrent=stepCurrent+1;
     double etot_current = 0;
     for(int i=0;i<nfields;i++){
       etot_current += e_kin_full1(i) + full_energy_pot(i);
     }
-    double compare_energy = abs(etot_current-E_tot_initial)/abs(etot_current + E_tot_initial);
-    double compare_energy_running = abs(etot_current-E_tot_running)/abs(etot_current + E_tot_running);
-    if (world_rank==0) cout<<"E tot current "<<etot_current << " E tot initial " << E_tot_initial << " compare E ratio "<<compare_energy <<endl;
-    // Criterium for dropping by half the time step if energy is not conserved well enough
-    if(compare_energy > 0.001 ){
-      dt = dt/2;
-      count_energy++;
-      if (compare_energy_running < 1E-5 && count_energy > 2 + switch_en_count){
-        E_tot_initial = E_tot_running;
-        count_energy = 0;
-        if (world_rank==0) cout<<"Switch energy "<<switch_en_count <<" --------------------------------------------------------------------------------------------" <<endl;
-        switch_en_count++;
+    if (adaptive_timestep == true){
+      double compare_energy = abs(etot_current-E_tot_initial)/abs(etot_current + E_tot_initial);
+      double compare_energy_running = abs(etot_current-E_tot_running)/abs(etot_current + E_tot_running);
+      if (world_rank==0) cout<<"E tot current "<<etot_current << " E tot initial " << E_tot_initial << " compare E ratio "<<compare_energy <<endl;
+      // Criterium for dropping by half the time step if energy is not conserved well enough
+      if(compare_energy > 0.001 ){
+        dt = dt/2;
+        count_energy++;
+        if (compare_energy_running < 1E-5 && count_energy > 2 + switch_en_count){
+          E_tot_initial = E_tot_running;
+          count_energy = 0;
+          if (world_rank==0) cout<<"Switch energy "<<switch_en_count <<" --------------------------------------------------------------------------------------------" <<endl;
+          switch_en_count++;
+        }
       }
+      else if(compare_energy<1E-5 && compare_energy_running>1E-8){
+        dt = dt*1.2; // Less aggressive when increasing the time step, rather than when decreasing it
+      }
+      else if (compare_energy_running < 1E-8) {
+        dt = dt*2; // If it remains stuck to an incredibly low dt, try to unstuck it
+        cout<<"Unstucking --------------------------------------------------------------------------------------------------------------------"<<endl;
+      }
+      E_tot_running = etot_current;
     }
-    else if(compare_energy<1E-5 && compare_energy_running>1E-8){
-      dt = dt*1.2; // Less aggressive when increasing the time step, rather than when decreasing it
-    }
-    else if (compare_energy_running < 1E-8) {
-      dt = dt*2; // If it remains stuck to an incredibly low dt, try to unstuck it
-      cout<<"Unstucking --------------------------------------------------------------------------------------------------------------------"<<endl;
-    }
-    E_tot_running = etot_current;
     
     if(stepCurrent%numoutputs==0 || stepCurrent==numsteps) {
       if (mpi_bool==true){ 

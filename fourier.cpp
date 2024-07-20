@@ -191,7 +191,7 @@ void Fourier::add_phases(){
   #pragma omp barrier
 }
 
-void Fourier::kfactor_vel(double Length,double r, int which_coord){
+void Fourier::kfactor_vel(double Length, double r, int which_coord){
   // I have to distinguish between the two fields, field 1 has the mass ratio r attached
   size_t i,j,k;
   #pragma omp parallel for collapse(3)
@@ -275,6 +275,18 @@ for(size_t i=0;i<Nx;i++)
 #pragma omp barrier
 }
 
+// Inputs the Potential Phi, which is already stored
+void Fourier::input_potential(multi_array<double,3> &Phi_in){ // Luca: I removed the psisqmean, since it is useless
+  #pragma omp parallel for collapse(3)
+  for(size_t i=0;i<Nx;i++)
+    for(size_t j=0; j<Nx;j++)
+      for(size_t k=0; k<Nz;k++){
+        rin[i+Nx*j+Nx*Nx*k][0]= Phi_in[i][j][k];
+        rin[i+Nx*j+Nx*Nx*k][1]=0;
+      }
+  #pragma omp barrier
+}
+
 //function for putting -1/k^2 factor on the output of the FT
 // needed for solving the Poisson equation to get Phi
 void Fourier::kfactorPhi(double Length){
@@ -345,4 +357,57 @@ double Fourier::v_center_mass_FT(multi_array<double,4> &psi, double Length,int n
       }
   #pragma omp barrier
   return tot_vcm/pow(Nx,6)*pow(Length,3);
+}
+
+
+void Fourier::transfer_arr(multi_array<double,4> &arr, int which_coord, double factor){
+  size_t i,j,k;
+  // cout << "factor " << factor << endl;
+  #pragma omp parallel for collapse(3)
+  for(i=0;i<Nx;i++){
+    for(j=0; j<Nx;j++){
+      for(k=0; k<Nz;k++){
+        arr[which_coord][i][j][k]=factor*rin[i+Nx*j+Nx*Nx*k][0];
+        // if(factor*rin[i+Nx*j+Nx*Nx*k][0]!=0)cout << arr[which_coord][i][j][k] << endl;
+      }
+    }
+  }
+  #pragma omp barrier
+  // cout << "LAMA " << arr[which_coord][10][0][0] << " " << rin[10+Nx*0+Nx*Nx*0][0] << endl;
+}
+//function for the center of mass velocity using the FT
+// note this does not sum up the values on different nodes
+void Fourier::kPhi_FT(multi_array<double,3> &Phi_in,multi_array<double,4> &arr, double Length){
+  input_potential(Phi_in);
+  calculateFT();
+  // #pragma omp parallel for collapse (3)
+  // for (size_t i = 0; i <Nx; i++)
+  //   for (size_t j = 0; j <Nx; j++)
+  //     for (size_t k = 0; k <Nz; k++){ // CHANGE FOR MPI
+  //       if (rin[i+Nx*j+Nx*Nx*k][0]>10) cout<< "Exceeds " << rin[i+Nx*j+Nx*Nx*k][0] << " " << i << " " << j << " " << k << endl;
+  //     }
+  // #pragma omp barrier
+  // cout<<"Phi in " << Phi_in[12][32][32]<<endl;
+  //   cout<< "FT not working? " << rin[10][0] << " " << rin[10][1] << endl;
+  for(int coordinate=0; coordinate<3; coordinate++){
+    #pragma omp parallel for collapse(3)
+    for(size_t i=0;i<Nx;i++)
+      for(size_t j=0; j<Nx;j++)
+        for(size_t k=0; k<Nz;k++){
+          size_t ktrue=world_rank*Nz+k;
+          double kx;
+          if (coordinate==0) kx = shift(i,Nx)*2*M_PI/Length;
+          else if(coordinate==1) kx = shift(j,Nx)*2*M_PI/Length;
+          else if(coordinate==2) kx = shift(k,Nx)*2*M_PI/Length;
+          double rin0 = rin[i+Nx*j+Nx*Nx*k][0];
+          rin[i+Nx*j+Nx*Nx*k][0]= -kx*rin[i+Nx*j+Nx*Nx*k][1];
+          rin[i+Nx*j+Nx*Nx*k][1]= kx*rin0;
+        }
+    #pragma omp barrier
+    calculateIFT();
+    // cout<< "IFT not working? " << rin[10][0] << " " << rin[10][1] << endl;
+    // cout<< "Factor 0? " <<1.0/(Nx*Nx*Nx) << endl;
+    transfer_arr(arr,coordinate,1.0/(Nx*Nx*Nx));
+    // cout<< "Arr transfer? " << arr[coordinate][10][0][0] << endl;
+  }
 }

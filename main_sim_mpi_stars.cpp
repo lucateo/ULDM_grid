@@ -1,4 +1,3 @@
-
 #include "uldm_mpi_2field.h"
 #include "uldm_stars.h"
 #include <boost/multi_array.hpp>
@@ -79,7 +78,7 @@ int main(int argc, char** argv){
   string initial_cond = params_sim[7]; // String which specifies the initial condition
   string start_from_backup = params_sim[8]; // true or false, depending on whether you want to start from a backup or not
   string directory_name = params_sim[9]; // Directory name
-  int num_stars = stoi(params_sim[10]); // Directory name
+  int num_stars = stoi(params_sim[10]); // Number of stars
   
   // Chek that parameters are loaded correctly
   cout<< num_fields << " " << Nx << " " << Length << " " << dt << " "<< numsteps << " " << outputnumb << " " << outputnumb_profile <<
@@ -160,12 +159,12 @@ int main(int argc, char** argv){
       string temp;
       while (std::getline(infile, temp, ' ')) {
         double num = stod(temp);
-        if(l<7){ // loop over single star feature
+        if(l<8){ // loop over single star feature
           stars_arr[star_i][l] = num;
           cout<< stars_arr[star_i][l] << " " << star_i << " " << l << endl;
           l++;
         }
-        if(l==7){ // loop over
+        if(l==8){ // loop over
           star_i++;
           l=0;
         }
@@ -190,24 +189,65 @@ int main(int argc, char** argv){
   }
   
   else if (initial_cond == "stars_soliton" ) {// Stars in ULDM background
-    if (params_initial_cond.size() > 1){
+    if (params_initial_cond.size() > 0){
       outputname= "out_stars/stars_soliton"+outputname;
       double rc = stod(params_initial_cond[0]); // core radius of soliton
       outputname = outputname + "rc_"+to_string(rc)+ "_Nstars_"+to_string(num_stars) + "_";
       
-      multi_array<double, 2> stars_arr(extents[num_stars][7]);
-      ifstream infile = ifstream(outputname+"stars_backup.txt");
+      multi_array<double, 2> stars_arr(extents[num_stars][8]);
+      if(start_from_backup=="false"){
+        ifstream infile = ifstream("stars_input.txt");
+        int l = 0;
+        int star_i = 0;
+        string temp;
+        while (std::getline(infile, temp, ' ')) {
+          double num = stod(temp);
+          if(l<8){ // loop over single star feature; 8-th entry is potential energy, which I set to zero in initial conditions
+            stars_arr[star_i][l] = num;
+            cout<< stars_arr[star_i][l] << " " << star_i << " " << l << endl;
+            l++;
+          }
+          if(l==8){ // loop over
+            star_i++;
+            l=0;
+          }
+        }
+        D3.put_initial_stars(stars_arr);
+      }
+      D3.set_output_name(outputname);
+      D3.set_ratio_masses(ratio_mass);
+      if(start_from_backup=="true"){
+        D3.initial_cond_from_backup();
+        D3.get_star_backup();
+      }
+      else{
+          D3.setInitialSoliton_1(rc, 0);
+        }
+    }
+    else{
+      run_ok=false; 
+      if (world_rank==0)
+        cout<<"You need 1 argument to pass to the code: rc" << endl;
+    }
+  }
+  // Testing external potential, here I change the step_fourier function to put all the time an external potential
+  else if (initial_cond == "test" ) { 
+      outputname= "out_stars/test"+outputname;
+      outputname = outputname + "_Nstars_"+to_string(num_stars) + "_";
+      
+      multi_array<double, 2> stars_arr(extents[num_stars][8]);
+      ifstream infile = ifstream("stars_input.txt");
       int l = 0;
       int star_i = 0;
       string temp;
       while (std::getline(infile, temp, ' ')) {
         double num = stod(temp);
-        if(l<7){ // loop over single star feature
+        if(l<8){ // loop over single star feature; 8-th entry is potential energy, which I set to zero in initial conditions
           stars_arr[star_i][l] = num;
           cout<< stars_arr[star_i][l] << " " << star_i << " " << l << endl;
           l++;
         }
-        if(l==7){ // loop over
+        if(l==8){ // loop over
           star_i++;
           l=0;
         }
@@ -218,13 +258,51 @@ int main(int argc, char** argv){
       if(start_from_backup=="true")
         D3.initial_cond_from_backup();
       else{
-          D3.setInitialSoliton_1(rc, 0);
+          D3.setTest();
         }
+    }
+
+  else if (initial_cond == "stars_eddington_NFW" ) {// Stars in NFW background
+    if (params_initial_cond.size() > 2){
+      outputname= "out_stars/stars_eddington_NFW"+outputname;
+      double rs = stod(params_initial_cond[0]);
+      double rhos= stod(params_initial_cond[1]);
+      int num_k = stoi(params_initial_cond[2]); // Number of maximum k points in nested loop
+      bool boolk = false; // simplify k sum always false
+      outputname = outputname+"rs_"+to_string(rs)+"_rhos_"+to_string(rhos)+"_num_stars_"+to_string(num_stars)+"_";
+      
+      D3.set_output_name(outputname);
+      D3.set_ratio_masses(ratio_mass);
+      
+      if(start_from_backup=="true"){
+        D3.initial_cond_from_backup();
+        D3.get_star_backup();
+      }
+      else{
+        NFW *profile = new NFW(rs, rhos, Length, true);// The actual max radius is between Length and Length/2
+        Eddington eddington = Eddington(true);
+        eddington.set_profile_den(profile);
+        eddington.set_profile_pot(profile);
+        // setEddington computes fE_func, so you should run it before
+        D3.setEddington(&eddington, 500, Length/Nx, Length, 0, ratio_mass[0], num_k, boolk,
+            int(Nx/2),int(Nx/2),int(Nx/2) ); // The actual max radius is between Length and Length/2
+        
+        // Generate stars
+        if(world_rank==0){
+          multi_array<double, 2> stars_arr = D3.generate_stars(&eddington,Length/Nx, Length/2);
+          D3.put_initial_stars(stars_arr);
+          // World rank 0 creates the star backup, then all the other ranks will take from this backup
+          D3.out_star_backup(); 
+        }
+      }
+      D3.get_star_backup();
+      D3.set_output_name(outputname);
+      D3.set_ratio_masses(ratio_mass);
     }
     else{
       run_ok=false; 
       if (world_rank==0)
-        cout<<"You need 2 arguments to pass to the code: rc, Nstars" << endl;
+        cout<<"You need 3 arguments to pass to the code: rs, rhos, num_k" << endl;
     }
   }
 

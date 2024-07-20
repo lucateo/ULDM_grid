@@ -213,9 +213,11 @@ int main(int argc, char** argv){
       
       NFW * profile_ext = new NFW(rs_nfw, rho0_tilde, Length, true);
       // The potential is the sum of the external and Eddington; this works only if rs_nfw = rs_edd
-      NFW profile_pot = NFW(rs_nfw, rho0_tilde+rho_edd, Length, true);
-      NFW profile_den = NFW(rs_edd, rho_edd, Length, true);
-      Eddington eddington = Eddington(&profile_pot, &profile_den, false);
+      NFW *profile_pot = new NFW(rs_nfw, rho0_tilde+rho_edd, Length, true);
+      NFW *profile_den = new NFW(rs_edd, rho_edd, Length, true);
+      Eddington eddington = Eddington(false);
+      eddington.set_profile_pot(profile_pot);
+      eddington.set_profile_den(profile_den);
       D3.set_output_name(outputname);
       D3.set_profile(profile_ext);
       D3.set_ratio_masses(ratio_mass);
@@ -250,9 +252,12 @@ int main(int argc, char** argv){
       NFW * profile_ext_nfw = new NFW(rs_nfw, rho0_tilde, Length, true);
       Hernquist * profile_ext_Hern = new Hernquist(r_H, M_Hern, Length, true);
       // The potential is the sum of the external and Eddington; this works only if rs_nfw = rs_edd
-      NFW profile_pot = NFW(rs_nfw, rho0_tilde+rho_edd, Length, true);
-      NFW profile_den = NFW(rs_edd, rho_edd, Length, true);
-      Eddington eddington = Eddington(&profile_pot, &profile_den, false);
+      NFW * profile_den = new NFW(rs_edd, rho_edd, Length, true);
+      Eddington eddington = Eddington(false);
+      eddington.set_profile_den(profile_den);
+      eddington.set_profile_pot(profile_ext_nfw);
+      eddington.set_profile_pot(profile_ext_Hern);
+      eddington.set_profile_pot(profile_den);
       D3.set_output_name(outputname);
       D3.set_profile(profile_ext_nfw);
       D3.set_profile(profile_ext_Hern);
@@ -265,7 +270,7 @@ int main(int argc, char** argv){
     else{
       run_ok=false; 
       if (world_rank==0)
-        cout<<"You need 5 arguments to pass to the code: rho0_tilde_ext, Rs_ext, rho0_tilde_Eddington, Rs_Eddington, num_k" << endl;
+        cout<<"You need 7 arguments to pass to the code: rho0_tilde_ext, Rs_ext, rho0_tilde_Eddington, Rs_Eddington, M_Hernquist, R_Hernquist, num_k" << endl;
     }
   }
 
