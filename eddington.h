@@ -32,6 +32,7 @@ class Profile{
     // Sintax to define a pure virtual function, to be declared afterwards
     virtual double potential(double r) =0;    
     virtual double density(double r) =0;
+    virtual double surface_density(double r) =0;
     virtual double Psi(double r) =0;
     virtual double mass_rmax(double rmax) =0;
     virtual double analytic_small_radius(double psi) = 0;
@@ -66,6 +67,18 @@ class NFW: public Profile{
     }
     double density(double r){ // rhos in M_sun/kpc^3, rs in kpc, r in kpc
       return Rhos*pow(Rs,3)/(r*pow((r+Rs),2) );
+    }
+    double surface_density(double r){ 
+      // from astro-ph/0102341
+      double xr = r/Rs;
+      double result = 0;
+      if (xr ==1) xr = 1.000000001; // Avoid division by zero
+      double prefactor = 2*Rhos*Rs/(xr*xr-1);
+      if (xr>1)
+        result = prefactor*(1-1/sqrt(xr*xr-1)*atan(sqrt(xr*xr-1)));
+      else if (xr<1)
+        result = prefactor*(1-1/sqrt(1-xr*xr)*atanh(sqrt(1-xr*xr)));
+      return result;
     }
     double Psi(double r){
       return -potential(r) + potential(Rmax);
@@ -103,6 +116,10 @@ class Plummer: public Profile{
     }
     double density(double r){ // rhos in M_sun/kpc^3, rs in kpc, r in kpc
       return 3*M0/(4*M_PI*pow(Rs,3))*pow(1+pow(r/Rs,2) ,-5./2);
+    }
+    // Surface density
+    double surface_density(double r){
+      return M0*pow(Rs,2)/(M_PI*pow(Rs*Rs + r*r,2));
     }
     double Psi(double r){
       return -potential(r) + potential(Rmax);
@@ -152,6 +169,18 @@ class Hernquist: public Profile{
     }
     double density(double r){ // rhos in M_sun/kpc^3, rs in kpc, r in kpc
       return Mh*Rh/(2*M_PI)/(r*pow((r+Rh),3) );
+    }
+    double surface_density(double r){ 
+      // from astro-ph/0102341
+      double xr = r/Rh;
+      double result = 0;
+      if (xr ==1) xr = 1.000000001; // Avoid division by zero
+      double prefactor = Mh/(2*M_PI*Rh*Rh)/pow(xr*xr-1,2);
+      if (xr>1)
+        result = prefactor*(-3+(2+xr*xr)/sqrt(xr*xr-1)*atan(sqrt(xr*xr-1)));
+      else if (xr<1)
+        result = prefactor*(-3+(2+xr*xr)/sqrt(1-xr*xr)*atanh(sqrt(1-xr*xr)));
+      return result;
     }
     double Psi(double r){
       return -potential(r) + potential(Rmax);
@@ -218,6 +247,31 @@ class Eddington{
         psi = psi+ profiles_potential[i]->Psi(radius);
       }
       return psi;
+    }
+    
+    double profiles_massMax(double rmax){
+      double mass = 0;
+      for(int i=0; i<profiles_density.size();i++){
+        mass += profiles_density[i]->mass_rmax(rmax);
+      }
+      return mass;
+    }
+    
+    // Uses the profiles_potential to compute the mass inside rmax
+    double profiles_massMax_pot(double rmax){
+      double mass = 0;
+      for(int i=0; i<profiles_potential.size();i++){
+        mass += profiles_potential[i]->mass_rmax(rmax);
+      }
+      return mass;
+    }
+
+    double profile_surface_density(double radius){
+      double density_surface = 0;
+      for(int i=0; i<profiles_density.size();i++){
+        density_surface += profiles_density[i]->surface_density(radius);
+      }
+      return density_surface;
     }
 
     void compute_d2rho_dpsi2_arr(int numpoints, double rmin, double rmax){

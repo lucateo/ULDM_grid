@@ -64,10 +64,36 @@ void domain3::setInitialSoliton_1(double r_c, int whichpsi){ // sets 1 soliton i
   #pragma omp barrier
 }
 
+// sets 1 soliton in the center of the grid as initial condition, with perturbation constant c_pert
+void domain3::set1Sol_perturbed(double r_c, double c_pert){ 
+  int center = (int) PointsS / 2; // The center of the grid, more or less
+  int extrak= PointsSS*world_rank -nghost; // Take into account the node where you are. If mpi==false, world rank and nghost are initialized to 0
+  if (first_initial_cond == true){ 
+    info_initial_cond.open(outputname+"initial_cond_info.txt");
+    first_initial_cond = false;
+  }
+  else info_initial_cond.open(outputname+"initial_cond_info.txt", ios_base::app);
+  info_initial_cond<<"1Soliton_pert " << r_c << " " << c_pert << endl;
+  #pragma omp parallel for collapse(3) //not sure whether this is parallelizable
+    for(int i=0;i<PointsS;i++){
+      for(int j=0; j<PointsS;j++){
+        for(int k=nghost; k<PointsSS+nghost;k++){
+          // Distance from the center of the soliton
+          double radius = deltaX * sqrt( pow( abs(i - center),2) + pow( abs(j - center),2) + pow( abs(k + extrak - center),2));
+          // double phase = deltaX * (0.1 * i + 0.3 * j - 0.05*(k+extrak));
+          psi[0][i][j][k] += c_pert* psi_soliton(r_c, radius, 1) ;
+          psi[1][i][j][k] = 0; 
+        }
+      }
+    }
+  #pragma omp barrier
+}
+
 void domain3::setTest(){
   info_initial_cond.open(outputname+"initial_cond_info.txt");
   info_initial_cond<<"Test" << endl;
 }
+
 
 // Uniform density sphere for test purposes, od density rho0 and radius rad
 void domain3::uniform_sphere(double rho0, double rad){
@@ -85,7 +111,7 @@ void domain3::uniform_sphere(double rho0, double rad){
         for(int k=nghost; k<PointsSS+nghost;k++){
           // Distance from the center of the soliton
           double radius = deltaX * sqrt( pow( abs(i - center),2) + pow( abs(j - center),2) + pow( abs(k + extrak - center),2));
-          if (radius < rad)
+          if (radius <= rad)
             psi[0][i][j][k] += sqrt(rho0);
         }
       }

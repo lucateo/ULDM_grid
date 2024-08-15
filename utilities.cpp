@@ -52,7 +52,7 @@ double derivative_3point(double f1_plus, double f1_minus, double f2_plus, double
 
 // First order derivative with 5 points-midpoint, f2_plus = f(x + 2h), f_minus = f(x-h) etc.
 double derivative_5midpoint(double f2_plus, double f_plus, double f_minus, double f2_minus, double deltaX){
-  return (f2_minus-8*f_minus+8*f_plus-f2_plus)/12/deltaX;
+  return (f2_minus-8*f_minus+8*f_plus-f2_plus)/(12*deltaX);
 }
 
 // Soliton profile in grid units
@@ -215,9 +215,9 @@ double linear_interp_3D(multi_array<double, 1> x_compute, multi_array<int, 2> xi
   }
   // I follow wikipedia article for trilinear interpolation
   // Remember that xii are integers (grid points), multiply by deltax to recover the physical one
-  double xd = (x_compute[0] - deltax*xii[0][0] )/(xii[1][0]-xii[0][0])/deltax;
-  double yd = (x_compute[1] - deltax*xii[0][1] )/(xii[1][1]-xii[0][1])/deltax;
-  double zd = (x_compute[2] - deltax*xii[0][2] )/(xii[1][2]-xii[0][2])/deltax;
+  double xd = (x_compute[0] - deltax*xii[0][0] )/((xii[1][0]-xii[0][0])*deltax);
+  double yd = (x_compute[1] - deltax*xii[0][1] )/((xii[1][1]-xii[0][1])*deltax);
+  double zd = (x_compute[2] - deltax*xii[0][2] )/((xii[1][2]-xii[0][2])*deltax);
   double c00 = fii[0][0][0]*(1-xd) +fii[1][0][0]*xd;
   double c01 = fii[0][0][1]*(1-xd) +fii[1][0][1]*xd;
   double c10 = fii[0][1][0]*(1-xd) +fii[1][1][0]*xd;

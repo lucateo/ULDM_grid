@@ -60,14 +60,10 @@ extern double interpolant(double x, vector<double> & xarr, vector<double> & yarr
 extern void export_for_plot(string name, vector<double> &xarr, vector<double> &yarr);
 
 class Eddington;  // Forward declaration, to avoid multiple headers calling each other issues
-// class Profile; // Forward declaration, to avoid multiple headers calling each other issues
-// class NFW; // Forward declaration, to avoid multiple headers
 
 // File printing functions; template class should be defined in the header
-template<class T1>
-inline int dimension(const multi_array<T1,3> & arr){ return arr.shape()[arr.num_dimensions()-1]; }
-template<class T, class U>
-void print2(multi_array<T,2> & v1,  U & filename){ //It prints a 2D array in the output file filename
+inline int dimension(const multi_array<double,3> & arr){ return arr.shape()[arr.num_dimensions()-1]; }
+void inline print2(multi_array<double,2> & v1,  ofstream & filename){ //It prints a 2D array in the output file filename
     int Nx=v1.shape()[0];
     int Ny=v1.shape()[1];
         filename<<"{";
@@ -83,8 +79,7 @@ void print2(multi_array<T,2> & v1,  U & filename){ //It prints a 2D array in the
     filename<< " } ";
 }
 
-template<class T, class U>
-void print3(multi_array<T,3> & v1,  U & filename){ //It prints a 3D array in the output file filename
+void inline print3(multi_array<double,3> & v1,  ofstream & filename){ //It prints a 3D array in the output file filename
   int Nx=v1.shape()[0];
   int Ny=v1.shape()[1];
   int Nz=v1.shape()[2];
@@ -106,11 +101,10 @@ void print3(multi_array<T,3> & v1,  U & filename){ //It prints a 3D array in the
   filename<< " } ";
 }
 
-template<class T, class U>
 // Class to print 3D arrays which are easy to read (load) with c++; it is just a string
 // of numbers, arranged in a 3*Nx array such that v1[i][j][k] goes to the i + Nx*j + Nx*Nx*k position
 // The numbers are separated by a space, " ", except for the last one
-void print3_cpp(multi_array<T,3> & v1,  U & filename){
+void inline print3_cpp(multi_array<double,3> & v1,  ofstream & filename){
     int Nx=v1.shape()[0];
     int Ny=v1.shape()[1];
     int Nz=v1.shape()[2];
@@ -124,8 +118,9 @@ void print3_cpp(multi_array<T,3> & v1,  U & filename){
       }
     }
 }
-template<class T, class U> //Outputs the full psi with the n fields
-void print4_cpp(multi_array<T,4> & v1,  U & filename, int nghost, int reduce_grid=1){
+
+//Outputs the full psi with the n fields
+void inline print4_cpp(multi_array<double,4> & v1,  ofstream & filename, int nghost, int reduce_grid=1){
   int Nl = v1.shape()[0]; //Dimension along the first argument (2*nfields)
   int Nx=v1.shape()[1];
   int Ny=v1.shape()[2];
@@ -289,7 +284,7 @@ class domain3{
     multi_array<double, 1>  maxdensity; // Max density on the grid
 
     // Variables useful for backup
-    double tcurrent; // Current time of simulation
+    double tcurrent=0.0; // Current time of simulation
     double E_tot_initial=0; // Stores the initial total energy to implement the adaptive time step
 
     int world_rank;
@@ -332,6 +327,7 @@ class domain3{
       void set_reduce_grid(int reduce_grid);
       void set_spectrum_flag(bool spect);// Sets the computation of the energy spectrum
       void set_output_name(string name);//Set the outputname
+      void set_numsteps(int numsteps);//Set the number of steps
       virtual void makestep(double stepCurrent, double tstep);
       virtual void solveConvDif();
       // Notice that you should call the backup from a run which uses the SAME number of cores in mpi processes
@@ -374,6 +370,8 @@ class domain3{
       void initial_waves(int whichF);
       // Sets one soliton in the center of the box
       void setInitialSoliton_1(double r_c, int whichPsi);
+      // Sets one perturbed soliton in the center of the box with perturbation constant c_pert
+      void set1Sol_perturbed(double r_c, double c_pert);
       // sets many solitons as initial condition, with random core radius whose centers are confined in a box of length length_lim
       void setManySolitons_random_radius(int num_Sol, double min_radius, double max_radius, double length_lim, int whichPsi);
       // sets many solitons as initial condition, with same core radius whose centers are confined in a box of length length_lim

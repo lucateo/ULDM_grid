@@ -294,6 +294,11 @@ void domain3::set_output_name(string name){//
   outputname = name;
 }
 
+// Sets the number of steps
+void domain3::set_numsteps(int Numsteps){//
+  numsteps = Numsteps;
+}
+
 void domain3::makestep(double stepCurrent, double tstep){ // makes a step in a dt
   // loop over the 8 values of alpha
   for(int alpha=0;alpha<8;alpha++){

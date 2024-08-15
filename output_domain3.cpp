@@ -263,7 +263,7 @@ multi_array<double,2> domain3::profile_density(int whichPsi){ // It computes the
 void domain3::snapshot(double stepCurrent){//Outputs the full density profile; if 3dgrid is false, it outputs just sliced density
   cout.setf(ios_base::fixed);
   if(world_rank==0)
-    timesfile_grid<<"{"<<tcurrent;
+    timesfile_grid<<"{"<<scientific<<tcurrent;
       // if(stepCurrent<numsteps){
   double Etot =0;
   for(int l=0;l<nfields;l++){
@@ -366,7 +366,7 @@ void domain3::snapshot_profile(double stepCurrent){// Outputs only few relevant 
   }
   if(world_rank==0){
     profilefile<<"}\n" <<","<<flush;
-    timesfile_profile<<"{"<<tcurrent;
+    timesfile_profile<<"{"<<scientific<<tcurrent;
   }
   // The total quantities computation needs to be run on all nodes
   double Etot =0;

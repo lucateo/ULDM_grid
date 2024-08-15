@@ -29,14 +29,11 @@ int main(int argc, char** argv){
         while (linestream >> w) {
           if(whichline==0){ 
             params_sim.push_back(w);
-            // cout<< w << " " << whichline<< endl;
           }
           else if (whichline==1){ 
             params_initial_cond.push_back(w);
-            // cout<< w << " " << whichline<< endl;
           }
           else if (whichline==2){ 
-            // cout<< w << " " << whichline<< endl;
             hyperparams.push_back(w);
           }
         }
@@ -134,6 +131,12 @@ int main(int argc, char** argv){
   outputname = outputname+"nfields_"+to_string(num_fields)+"_Nx" + to_string(Nx) + "_L_" + to_string(Length)+ "_";
   
   domain_stars D3(Nx,Nz,Length, num_fields,numsteps,dt,outputnumb, outputnumb_profile, Pointsmax, world_rank,world_size,nghost, mpirun_flag, num_stars);
+  D3.set_grid(grid3d_flag);
+  D3.set_grid_phase(phase_flag); // It will output 2D slice of phase grid
+  D3.set_backup_flag(backup_bool);
+  D3.set_reduce_grid(reduce_grid);
+  D3.set_adaptive_dt_flag(adaptive_flag);
+  D3.set_spectrum_flag(spectrum_flag);
 
   // Apply initial conditions
   bool run_ok = true;
@@ -189,29 +192,34 @@ int main(int argc, char** argv){
   }
   
   else if (initial_cond == "stars_soliton" ) {// Stars in ULDM background
-    if (params_initial_cond.size() > 0){
+    if (params_initial_cond.size() > 1){
       outputname= "out_stars/stars_soliton"+outputname;
       double rc = stod(params_initial_cond[0]); // core radius of soliton
-      outputname = outputname + "rc_"+to_string(rc)+ "_Nstars_"+to_string(num_stars) + "_";
+      double c_pert = stod(params_initial_cond[1]); // perturbation parameter
+      outputname = outputname + "rc_"+to_string(rc)+ "_Nstars_"+to_string(num_stars) 
+          + "_pert_" + to_string(c_pert) + "_";
       
       multi_array<double, 2> stars_arr(extents[num_stars][8]);
       if(start_from_backup=="false"){
         ifstream infile = ifstream("stars_input.txt");
-        int l = 0;
+        string line;
         int star_i = 0;
-        string temp;
-        while (std::getline(infile, temp, ' ')) {
-          double num = stod(temp);
-          if(l<8){ // loop over single star feature; 8-th entry is potential energy, which I set to zero in initial conditions
-            stars_arr[star_i][l] = num;
-            cout<< stars_arr[star_i][l] << " " << star_i << " " << l << endl;
-            l++;
-          }
-          if(l==8){ // loop over
+        // Read the file line by line
+        while (getline(infile, line) && star_i < num_stars) {
+            stringstream ss(line);
+            double num;
+            int l = 0;
+
+            // Read each value separated by spaces
+            while (ss >> num && l < 8) {
+                stars_arr[star_i][l] = num;
+                cout << stars_arr[star_i][l] << " " << star_i << " " << l << endl;
+                l++;
+            }
+
             star_i++;
-            l=0;
-          }
         }
+        infile.close();
         D3.put_initial_stars(stars_arr);
       }
       D3.set_output_name(outputname);
@@ -221,13 +229,13 @@ int main(int argc, char** argv){
         D3.get_star_backup();
       }
       else{
-          D3.setInitialSoliton_1(rc, 0);
+          D3.set1Sol_perturbed(rc, c_pert);
         }
     }
     else{
       run_ok=false; 
       if (world_rank==0)
-        cout<<"You need 1 argument to pass to the code: rc" << endl;
+        cout<<"You need 2 arguments to pass to the code: rc, c_perturbation" << endl;
     }
   }
 
@@ -350,6 +358,134 @@ int main(int argc, char** argv){
         cout<<"You need 3 arguments to pass to the code: rs, rhos, num_k" << endl;
     }
   }
+  
+  // Set an initial halo, let it relax, then put stars
+  else if (initial_cond == "halo_stars_delayed_NFW" ) {
+    if (params_initial_cond.size() > 5){
+      outputname= "out_stars/halo_stars_NFW"+outputname;
+      // NFW parameters
+      double rs = stod(params_initial_cond[0]);
+      double rhos= stod(params_initial_cond[1]);
+      // Plummer parameters
+      double r_plummer = stod(params_initial_cond[2]);
+      double M_plummer= stod(params_initial_cond[3]);
+      int num_k = stoi(params_initial_cond[4]); // Number of maximum k points in nested loop
+      int numstep_relax = stoi(params_initial_cond[5]); // Number of steps to relax the halo
+      bool boolk = false; // simplify k sum always false
+      outputname = outputname+"rs_"+to_string(rs)+"_rhos_"+to_string(rhos)+
+          "_r_plummer_"+to_string(r_plummer)+"_M_plummer_"+to_string(M_plummer)+
+          "_num_stars_"+to_string(num_stars)+"_";
+      
+      D3.set_output_name(outputname);
+      D3.set_ratio_masses(ratio_mass);
+      
+      if(start_from_backup=="true"){
+        D3.initial_cond_from_backup();
+        D3.get_star_backup();
+      }
+      else{
+        // Sets the number of steps to relax the halo
+        D3.set_numsteps(numstep_relax);
+        NFW *profile_nfw = new NFW(rs, rhos, Length, true);// The actual max radius is between Length and Length/2
+        Plummer *profile_plummer = new Plummer(r_plummer, M_plummer, Length, true);// The actual max radius is between Length and Length/2
+        Eddington eddington_nfw = Eddington(true);
+        eddington_nfw.set_profile_den(profile_nfw);
+        eddington_nfw.set_profile_pot(profile_nfw);
+        // setEddington computes fE_func, so you should run it before
+        D3.setEddington(&eddington_nfw, 500, Length/Nx, Length, 0, ratio_mass[0], num_k, boolk,
+            int(Nx/2),int(Nx/2),int(Nx/2) ); // The actual max radius is between Length and Length/2
+        D3.set_output_name(outputname);
+        D3.set_ratio_masses(ratio_mass);
+        D3.put_numstar_eff(0);
+        // Run until relaxing time
+        D3.solveConvDif();
+        D3.set_numsteps(numsteps);
+        D3.put_numstar_eff(num_stars);
+        // Then generate stars
+        if(world_rank==0){
+          Eddington eddington_stars = Eddington(false);
+          eddington_stars.set_profile_den(profile_plummer);
+          eddington_stars.set_profile_pot(profile_nfw);
+          eddington_stars.set_profile_pot(profile_plummer);
+          multi_array<double,2> stars_arr = D3.generate_stars(&eddington_stars,Length/Nx, Length/2);
+          D3.put_initial_stars(stars_arr);
+          // World rank 0 creates the star backup, then all the other ranks will take from this backup
+          D3.out_star_backup(); 
+        }
+        D3.get_star_backup();
+      }
+      // After, if start_from_backup is false, it will not save the relaxing of halo part
+    }
+    else{
+      run_ok=false; 
+      if (world_rank==0)
+        cout<<"You need 6 arguments to pass to the code: rs, rhos, r_plummer, M_plummer, num_k, numstep_relax" << endl;
+    }
+  }
+
+  // Set an initial halo, let it relax, then put stars in a disk
+  else if (initial_cond == "halo_stars_disk" ) {
+    if (params_initial_cond.size() > 5){
+      outputname= "out_stars/halo_stars_disk"+outputname;
+      // NFW parameters
+      double rs = stod(params_initial_cond[0]);
+      double rhos= stod(params_initial_cond[1]);
+      // Plummer parameters
+      double r_plummer = stod(params_initial_cond[2]);
+      double M_plummer= stod(params_initial_cond[3]);
+      int num_k = stoi(params_initial_cond[4]); // Number of maximum k points in nested loop
+      int numstep_relax = stoi(params_initial_cond[5]); // Number of steps to relax the halo
+      bool boolk = false; // simplify k sum always false
+      outputname = outputname+"rs_"+to_string(rs)+"_rhos_"+to_string(rhos)+
+          "_r_plummer_"+to_string(r_plummer)+"_M_plummer_"+to_string(M_plummer)+
+          "_num_stars_"+to_string(num_stars)+"_";
+      
+      D3.set_output_name(outputname);
+      D3.set_ratio_masses(ratio_mass);
+      
+      if(start_from_backup=="true"){
+        D3.initial_cond_from_backup();
+        D3.get_star_backup();
+      }
+      else{
+        // Sets the number of steps to relax the halo
+        D3.set_numsteps(numstep_relax);
+        NFW *profile_nfw = new NFW(rs, rhos, Length, true);// The actual max radius is between Length and Length/2
+        Plummer *profile_plummer = new Plummer(r_plummer, M_plummer, Length, true);// The actual max radius is between Length and Length/2
+        Eddington eddington_nfw = Eddington(true);
+        eddington_nfw.set_profile_den(profile_nfw);
+        eddington_nfw.set_profile_pot(profile_nfw);
+        // setEddington computes fE_func, so you should run it before
+        D3.setEddington(&eddington_nfw, 500, Length/Nx, Length, 0, ratio_mass[0], num_k, boolk,
+            int(Nx/2),int(Nx/2),int(Nx/2) ); // The actual max radius is between Length and Length/2
+        D3.set_output_name(outputname);
+        D3.set_ratio_masses(ratio_mass);
+        D3.put_numstar_eff(0);
+        // Run until relaxing time
+        D3.solveConvDif();
+        D3.set_numsteps(numsteps);
+        D3.put_numstar_eff(num_stars);
+        // Then generate stars
+        if(world_rank==0){
+          Eddington eddington_stars = Eddington(false);
+          eddington_stars.set_profile_den(profile_plummer);
+          eddington_stars.set_profile_pot(profile_nfw);
+          eddington_stars.set_profile_pot(profile_plummer);
+          multi_array<double,2> stars_arr = D3.generate_stars_disk(&eddington_stars, Length/Nx, Length/2);
+          D3.put_initial_stars(stars_arr);
+          // World rank 0 creates the star backup, then all the other ranks will take from this backup
+          D3.out_star_backup(); 
+        }
+        D3.get_star_backup();
+      }
+      // After, if start_from_backup is false, it will not save the relaxing of halo part
+    }
+    else{
+      run_ok=false; 
+      if (world_rank==0)
+        cout<<"You need 4 arguments to pass to the code: rs, rhos, r_plummer, M_plummer, num_k, numstep_relax" << endl;
+    }
+  }
 
   else{
     run_ok=false; 
@@ -360,12 +496,6 @@ int main(int argc, char** argv){
   }
 
   if(run_ok==true){
-      D3.set_grid(grid3d_flag);
-      D3.set_grid_phase(phase_flag); // It will output 2D slice of phase grid
-      D3.set_backup_flag(backup_bool);
-      D3.set_reduce_grid(reduce_grid);
-      D3.set_adaptive_dt_flag(adaptive_flag);
-      D3.set_spectrum_flag(spectrum_flag);
       D3.solveConvDif();
   }
 

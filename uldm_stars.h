@@ -29,6 +29,10 @@ void put_initial_stars(multi_array<double, 2> input){
   stars = input;
 }
 
+void put_numstar_eff(int num){
+  num_stars_eff = num;
+}
+
 vector<double> acceleration_from_point(int i, int j, int k, double x, double y, double z, double softening){
   double mass = 0;
   vector<double> acceleration(3,0);
@@ -104,37 +108,51 @@ void gradient_potential(multi_array<double,4> &arr){
       for (int j = 0; j <PointsS; j++)
         for (int k = nghost; k <PointsSS+nghost; k++){ // CHANGE FOR MPI
           double Phi_2plus; double Phi_plus; double Phi_minus; double Phi_2minus;
+          // double Phi_3plus; double Phi_3minus;
           if(coord==0){
             Phi_2plus = Phi[cyc(i+2,PointsS)][j][k];
             Phi_plus = Phi[cyc(i+1,PointsS)][j][k];
             Phi_minus = Phi[cyc(i-1,PointsS)][j][k];
             Phi_2minus = Phi[cyc(i-2,PointsS)][j][k];
+            // Phi_3plus = Phi[cyc(i+3,PointsS)][j][k];
+            // Phi_3minus = Phi[cyc(i-3,PointsS)][j][k];
           }
           else if (coord==1){
             Phi_2plus = Phi[i][cyc(j+2,PointsS)][k];
             Phi_plus = Phi[i][cyc(j+1,PointsS)][k];
             Phi_minus = Phi[i][cyc(j-1,PointsS)][k];
             Phi_2minus = Phi[i][cyc(j-2,PointsS)][k];
+            // Phi_3plus = Phi[i][cyc(j+3,PointsS)][k];
+            // Phi_3minus = Phi[i][cyc(j-3,PointsS)][k];
           }
           else if (coord==2){
             Phi_2plus = Phi[i][j][cyc(k+2,PointsSS+2*nghost)];
             Phi_plus = Phi[i][j][cyc(k+1,PointsSS+2*nghost)];
             Phi_minus = Phi[i][j][cyc(k-1,PointsSS+2*nghost)];
             Phi_2minus = Phi[i][j][cyc(k-2,PointsSS+2*nghost)];
+            // Phi_3plus = Phi[i][j][cyc(k+3,PointsS)];
+            // Phi_3minus = Phi[i][j][cyc(k-3,PointsS)];
           }
           arr[coord][i][j][k] = derivative_5midpoint(Phi_2plus,Phi_plus,Phi_minus,Phi_2minus, deltaX);
+          // arr[coord][i][j][k] = derivative_3point(Phi_plus,Phi_minus, Phi_2plus,Phi_2minus, Phi_3plus, Phi_3minus)/deltaX;
         }
   #pragma omp barrier
 }
 
 void step_stars_fourier(){
   multi_array<double,4> arr(extents[3][PointsS][PointsS][PointsS]);
-  // fgrid.kPhi_FT(Phi, arr, Length);
   gradient_potential(arr);
+  
   multi_array<double,1> x_compute(extents[3]);
   multi_array<int,2> xii(extents[2][3]);
   multi_array<double,3> fii(extents[2][2][2]);
+  multi_array<double,1> gradPhi(extents[3]);
+  // k =0 in the current world rank corresponds to the true k0_cell
+  int k0_cell = PointsSS*world_rank - nghost;
   for (int s = 0; s <num_stars_eff; s++){
+    double x = stars[s][1]+ 0.5*dt*stars[s][4];
+    double y = stars[s][2]+ 0.5*dt*stars[s][5];
+    double z = stars[s][3]+ 0.5*dt*stars[s][6];
     // Leapfrog second order, ADAPTIVE STEP NOT IMPLEMENTED
     for(int i=0; i<3;i++){
       double coord_comp = cyc_double(stars[s][i+1]+ 0.5*dt*stars[s][i+4],Length);
@@ -142,6 +160,11 @@ void step_stars_fourier(){
       xii[1][i] = ceil(coord_comp/deltaX+1E-10); 
       x_compute[i] = coord_comp;
     }
+    double ax = 0;
+    double ay = 0;
+    double az = 0;
+    double ax_shared, ay_shared, az_shared; // total summed up across all nodes
+    if (x_compute[2]>=deltaX*k0_cell && x_compute[2]<deltaX*(k0_cell+PointsSS)){
       for(int coord=0; coord<3; coord++){
         for(int i1 =0;i1<2;i1++)
           for(int i2 =0;i2<2;i2++)
@@ -150,27 +173,27 @@ void step_stars_fourier(){
           // to reinforce periodic boundary on the edges
               fii[i1][i2][i3] = arr[coord][cyc(xii[i1][0],PointsS)][cyc(xii[i2][1],PointsS)][cyc(xii[i3][2],PointsS)];
             }
-        stars[s][4+coord] = stars[s][4+coord] - linear_interp_3D(x_compute, xii,fii, deltaX);
+        gradPhi[coord] = linear_interp_3D(x_compute, xii,fii, deltaX);
+        // stars[s][4+coord] = stars[s][4+coord] - linear_interp_3D(x_compute, xii,fii, deltaX)*dt;
+        // cout<< linear_interp_3D(x_compute, xii,fii, deltaX) << endl;; 
       }
+    ax=gradPhi[0]; ay=gradPhi[1]; az=gradPhi[2];
+    }
+    if(mpi_bool==true){
+      MPI_Allreduce(&ax, &ax_shared, 1, MPI_DOUBLE, MPI_SUM,MPI_COMM_WORLD);
+      MPI_Allreduce(&ay, &ay_shared, 1, MPI_DOUBLE, MPI_SUM,MPI_COMM_WORLD);
+      MPI_Allreduce(&az, &az_shared, 1, MPI_DOUBLE, MPI_SUM,MPI_COMM_WORLD);
+    }
+    else {
+      ax_shared=ax; ay_shared=ay; az_shared=az;
+    }
+    // cout<< ax << " " << ay << " " << az << " " << ax_shared << " " << ay_shared<< " " << az_shared << " " << gradPhi[0] << endl;
+    stars[s][4]= stars[s][4] - ax_shared*dt;
+    stars[s][5]= stars[s][5] - ay_shared*dt;
+    stars[s][6]= stars[s][6] - az_shared*dt;
     stars[s][1] = cyc_double(x_compute[0] + dt*stars[s][4]/2, Length);
     stars[s][2] = cyc_double(x_compute[1] + dt*stars[s][5]/2, Length);
     stars[s][3] = cyc_double(x_compute[2] + dt*stars[s][6]/2, Length);
-    
-    // // Potential energy of the particle
-    // for(int i=0; i<3;i++){
-    //   xii[0][i] = floor(stars[s][1+i]/deltaX);
-    //   // Avoid that the 2 grid interpolating point share one coordinate exactly
-    //   xii[1][i] = ceil((stars[s][1+i]/deltaX+1E-10));
-    //   x_compute[i] = stars[s][i+1];
-    // }
-    // double pot_en = 0;
-    //   for(int i1 =0;i1<2;i1++)
-    //     for(int i2 =0;i2<2;i2++)
-    //       for(int i3 =0;i3<2;i3++){
-    //         fii[i1][i2][i3] = Phi[cyc(xii[i1][0],PointsS)][cyc(xii[i2][1],PointsS)][cyc(xii[i3][2],PointsS)];
-    //       }
-    //   stars[s][7] = stars[s][0]*linear_interp_3D(x_compute, xii,fii, deltaX);
-    // #pragma omp barrier
   }
 }
 
@@ -300,20 +323,29 @@ void step_stars_fourier(){
 // }
 
 void output_stars(){
-  // Potential energy by summing
+  multi_array<double,1> x_compute(extents[3]);
+  multi_array<int,2> xii(extents[2][3]);
+  multi_array<double,3> fii(extents[2][2][2]);
+  // k =0 in the current world rank corresponds to the true k0_cell
+  int k0_cell = PointsSS*world_rank - nghost;
   for (int s = 0; s <num_stars_eff; s++){
-    double pot_en=0;
-    int k0_cell = PointsSS*world_rank - nghost;
-    #pragma omp parallel for collapse (3) reduction (+:pot_en)
-    for (int i = 0; i <PointsS; i++)
-      for (int j = 0; j <PointsS; j++)
-        for (int k = nghost; k <PointsSS+nghost; k++){ // CHANGE FOR MPI
-          double distance = sqrt(pow(stars[s][1]-deltaX*i,2)+pow(stars[s][2]-deltaX*j,2)
-                + pow(stars[s][3]-deltaX*(k+k0_cell),2)+soften_param);
-          double mass = pow(deltaX,3)* (pow(psi[0][i][j][k],2) + pow(psi[1][i][j][k],2));
-          pot_en+= -mass/4/M_PI/distance; 
-        }
-    #pragma omp barrier
+    double pot_en = 0;
+    for(int i=0; i<3;i++){
+      xii[0][i] = floor(stars[s][1+i]/deltaX);
+      // Avoid that the 2 grid interpolating point share one coordinate exactly
+      xii[1][i] = ceil((stars[s][1+i]/deltaX+1E-10));
+      x_compute[i] = stars[s][i+1];
+    }
+    if (x_compute[2]>=deltaX*k0_cell && x_compute[2]<deltaX*(k0_cell+PointsSS)){
+      for(int i1 =0;i1<2;i1++)
+        for(int i2 =0;i2<2;i2++)
+          for(int i3 =0;i3<2;i3++){
+            // With cyc in the z bin, this should work both when nghost=0 or nghost =2; with nghost=2, I do not need
+            // to reinforce periodic boundary on the edges
+            fii[i1][i2][i3] = Phi[cyc(xii[i1][0],PointsS)][cyc(xii[i2][1],PointsS)][cyc(xii[i3][2]-k0_cell,PointsSS)];
+          }
+      pot_en = stars[s][0]*linear_interp_3D(x_compute, xii,fii, deltaX);
+    }
     // Actually, potential energy computation should happen in only one node, but this is the best I could
     // come up with; for future, I can make such that this is called only on snapshots
     double pot_en_shared;  
@@ -325,6 +357,31 @@ void output_stars(){
     }
     stars[s][7] = pot_en_shared;
   }
+  // Potential energy by summing
+  // for (int s = 0; s <num_stars_eff; s++){
+  //   double pot_en=0;
+  //   int k0_cell = PointsSS*world_rank - nghost;
+  //   #pragma omp parallel for collapse (3) reduction (+:pot_en)
+  //   for (int i = 0; i <PointsS; i++)
+  //     for (int j = 0; j <PointsS; j++)
+  //       for (int k = nghost; k <PointsSS+nghost; k++){ // CHANGE FOR MPI
+  //         double distance = sqrt(pow(stars[s][1]-deltaX*i,2)+pow(stars[s][2]-deltaX*j,2)
+  //               + pow(stars[s][3]-deltaX*(k+k0_cell),2)+soften_param);
+  //         double mass = pow(deltaX,3)* (pow(psi[0][i][j][k],2) + pow(psi[1][i][j][k],2));
+  //         pot_en+= -mass/4/M_PI/distance; 
+  //       }
+  //   #pragma omp barrier
+  //   // Actually, potential energy computation should happen in only one node, but this is the best I could
+  //   // come up with; for future, I can make such that this is called only on snapshots
+  //   double pot_en_shared;  
+  //   if(mpi_bool==true){
+  //     MPI_Allreduce(&pot_en, &pot_en_shared, 1, MPI_DOUBLE, MPI_SUM,MPI_COMM_WORLD);
+  //   }
+  //   else {
+  //     pot_en_shared=pot_en;
+  //   }
+  //   stars[s][7] = pot_en_shared;
+  // }
   if(world_rank==0){
     print2(stars, stars_filename);
     stars_filename<<"\n"<<","<<flush;
@@ -387,7 +444,6 @@ void open_filestars(){
 }
 
 // Generate num_stars_eff stars using eddington procedure
-// As of now, I assume that Eddington has only one profile
 multi_array<double, 2> generate_stars(Eddington * eddington, double rmin, double rmax){
   multi_array<double, 2> stars_arr(extents[num_stars_eff][8]);
   // Random seed
@@ -397,8 +453,7 @@ multi_array<double, 2> generate_stars(Eddington * eddington, double rmin, double
   vector<double> r_arr; // Interpolating array, random uniform variable
   vector<double> cumulative_x; // Cumulative of p(x) array
   int npoints = PointsS;
-  int numpoints_int = 30; // Number of points for the integration
-  Profile *density = eddington->get_profile_den(0);
+  int numpoints_int = 100; // Number of points for the integration
 
   // The first bin should be zero
   r_arr.push_back(0); 
@@ -416,15 +471,16 @@ multi_array<double, 2> generate_stars(Eddington * eddington, double rmin, double
       double r2 =pow(10 ,(log10(r) -log10(rmin_int))/(numpoints_int)* (j+1) + log10(rmin_int));
       double dx = r2 - r1;
       // Use trapezoid integration
-      double dy = density->density(r1)*r1*r1 + density->density(r2)*r2*r2;
+      double dy = eddington->profile_density(r1)*r1*r1 + eddington->profile_density(r2)*r2*r2;
       bin+= 0.5*dx*dy;
     }
-    cumulative_x.push_back( cumulative_x[i] + bin*4*M_PI/density->mass_rmax(Length/2));
+    cumulative_x.push_back( cumulative_x[i] + bin*4*M_PI/eddington->profiles_massMax(Length/2));
   }
 
   for(int i=0; i<num_stars_eff; i++){
     double rand = fRand(0,1);
     double x_rand = interpolant(rand, cumulative_x, r_arr);
+    // cout<< "rand " << rand << " x_rand " << x_rand << endl;
     // Find cumulative on velocity
     vector<double> v_arr; // Interpolating array, random uniform variable
     vector<double> cumulative_v; // Cumulative of p(v|x) array
@@ -450,7 +506,7 @@ multi_array<double, 2> generate_stars(Eddington * eddington, double rmin, double
         double dy = eddington->fE_func(E1)*v1*v1 + eddington->fE_func(E2)*v2*v2;
         bin+= 0.5*dx*dy;
       }
-      cumulative_v.push_back( cumulative_v[i] + bin*4*M_PI/density->density(x_rand));
+      cumulative_v.push_back(cumulative_v[i] + bin*4*M_PI/eddington->profile_density(x_rand));
     }
     double rand2 = fRand(0,1);
     double v_rand = interpolant(rand2, cumulative_v, v_arr);
@@ -464,17 +520,69 @@ multi_array<double, 2> generate_stars(Eddington * eddington, double rmin, double
     // Modulus of v
     double mod_v = sqrt(star[3]*star[3] +star[4]*star[4] +star[5]*star[5]);
     stars_arr[i][0]=1; // Set the mass to 1
-    cout << "star " << i << " " << x_rand << " " << v_rand << " ";
+    // cout << "star " << i << " " << x_rand << " " << v_rand << " ";
     for (int k=1;k<4;k++){
       // Generate the three x coordinates and center them at the center of the grid
       stars_arr[i][k] = x_rand*star[k-1]/mod_x + Length/2;
-      cout<< stars_arr[i][k]  << " ";
+      // cout<< stars_arr[i][k]  << " ";
     }
     for (int k=4;k<7;k++){
       stars_arr[i][k] = v_rand*star[k-1]/mod_v; // Generate the three v coordinates
-      cout<< stars_arr[i][k]  << " ";
+      // cout<< stars_arr[i][k]  << " ";
     }
     cout<<endl;
+  }
+  return stars_arr;
+}
+
+
+// Generate stars on a disk using the surface density for sampling the radius and
+// radial circular velocity for sampling the velocity
+multi_array<double, 2> generate_stars_disk(Eddington * eddington, double rmin, double rmax){
+  multi_array<double, 2> stars_arr(extents[num_stars_eff][8]);
+  // Random seed
+  vector<double> r_arr; // Interpolating array, random uniform variable
+  vector<double> cumulative_x; // Cumulative of p(x) array
+  int npoints = PointsS;
+  int numpoints_int = 100; // Number of points for the integration
+
+  // The first bin should be zero
+  r_arr.push_back(0); 
+  cumulative_x.push_back(0); 
+  rmin = 0.9*rmin; // Ensure that the maximum energy is never surpassed in the actual run
+  for(int i=0; i< npoints+1; i++){ // avoid very first bin, which is zero
+    double r = pow(10 ,(log10(rmax) -log10(rmin))/(npoints)* i + log10(rmin));
+    r_arr.push_back(r);
+    double bin = 0;
+    double rmin_int;
+    if(i==0) rmin_int = 0.1*rmin;
+    else rmin_int = r_arr[i];
+    for(int j=0; j< numpoints_int; j++){
+      double r1 = pow(10 ,(log10(r) -log10(rmin_int))/(numpoints_int)* j + log10(rmin_int));
+      double r2 =pow(10 ,(log10(r) -log10(rmin_int))/(numpoints_int)* (j+1) + log10(rmin_int));
+      double dx = r2 - r1;
+      // Use trapezoid integration
+      double dy = eddington->profile_surface_density(r1)*r1 + eddington->profile_surface_density(r2)*r2;
+      bin+= 0.5*dx*dy;
+    }
+    cumulative_x.push_back( cumulative_x[i] + bin*2*M_PI/eddington->profiles_massMax(Length/2));
+  }
+
+  for(int i=0; i<num_stars_eff; i++){
+    double rand = fRand(0,1);
+    double x_rand = interpolant(rand, cumulative_x, r_arr);
+    // Randomize point on the sphere
+    double theta= fRand(0,2*M_PI);
+    // Use the potential profiles to get the circular velocity, case where
+    // density is just Plummer but potential dominated by dark matter
+    double vel = sqrt(eddington->profiles_massMax_pot(x_rand)/(4*M_PI*x_rand));
+    stars_arr[i][0] = 1; // Mass
+    stars_arr[i][1] = x_rand*cos(theta); // x coordinate
+    stars_arr[i][2] = x_rand*sin(theta); // y coordinate
+    stars_arr[i][3] = 0; // z coordinate
+    stars_arr[i][4] = vel*sin(theta); // vx
+    stars_arr[i][5] = -vel*cos(theta); // vy
+    stars_arr[i][6] = 0; // vz
   }
   return stars_arr;
 }
@@ -493,7 +601,7 @@ virtual void solveConvDif(){
 
   int stepCurrent=0;
   if (start_from_backup == false){
-    tcurrent = 0;
+    tcurrent = 0.0;
     // Compute Phi so that I have the initial potential energy
     fgrid.inputPhi(psi,nghost,nfields);                                     //inputs |psi^2|
     fgrid.calculateFT();                                              //calculates its FT, FT(|psi^2|)
@@ -511,8 +619,8 @@ virtual void solveConvDif(){
     }
     makestep(stepCurrent,dt);
     tcurrent=tcurrent+dt;
-    // step_stars_fourier();
-    step_stars();
+    step_stars_fourier();
+    // step_stars();
     stepCurrent=stepCurrent+1;
   }
   else if (start_from_backup == true){
@@ -540,8 +648,8 @@ virtual void solveConvDif(){
     }
     makestep(stepCurrent,dt);
     tcurrent=tcurrent+dt;
-    // step_stars_fourier();
-    step_stars();
+    step_stars_fourier();
+    // step_stars();
     stepCurrent=stepCurrent+1;
     double etot_current = 0;
     for(int i=0;i<nfields;i++){
