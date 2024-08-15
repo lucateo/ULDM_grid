@@ -453,7 +453,7 @@ multi_array<double, 2> generate_stars(Eddington * eddington, double rmin, double
   vector<double> r_arr; // Interpolating array, random uniform variable
   vector<double> cumulative_x; // Cumulative of p(x) array
   int npoints = PointsS;
-  int numpoints_int = 100; // Number of points for the integration
+  int numpoints_int = 50; // Number of points for the integration
 
   // The first bin should be zero
   r_arr.push_back(0); 
@@ -530,7 +530,7 @@ multi_array<double, 2> generate_stars(Eddington * eddington, double rmin, double
       stars_arr[i][k] = v_rand*star[k-1]/mod_v; // Generate the three v coordinates
       // cout<< stars_arr[i][k]  << " ";
     }
-    cout<<endl;
+    // cout<<endl;
   }
   return stars_arr;
 }
@@ -577,9 +577,9 @@ multi_array<double, 2> generate_stars_disk(Eddington * eddington, double rmin, d
     // density is just Plummer but potential dominated by dark matter
     double vel = sqrt(eddington->profiles_massMax_pot(x_rand)/(4*M_PI*x_rand));
     stars_arr[i][0] = 1; // Mass
-    stars_arr[i][1] = x_rand*cos(theta); // x coordinate
-    stars_arr[i][2] = x_rand*sin(theta); // y coordinate
-    stars_arr[i][3] = 0; // z coordinate
+    stars_arr[i][1] = x_rand*cos(theta)+ Length/2; // x coordinate
+    stars_arr[i][2] = x_rand*sin(theta)+ Length/2; // y coordinate
+    stars_arr[i][3] = Length/2; // z coordinate
     stars_arr[i][4] = vel*sin(theta); // vx
     stars_arr[i][5] = -vel*cos(theta); // vy
     stars_arr[i][6] = 0; // vz

@@ -407,6 +407,7 @@ int main(int argc, char** argv){
           eddington_stars.set_profile_den(profile_plummer);
           eddington_stars.set_profile_pot(profile_nfw);
           eddington_stars.set_profile_pot(profile_plummer);
+          eddington_stars.generate_fE_arr(500, Length/Nx, Length);
           multi_array<double,2> stars_arr = D3.generate_stars(&eddington_stars,Length/Nx, Length/2);
           D3.put_initial_stars(stars_arr);
           // World rank 0 creates the star backup, then all the other ranks will take from this backup
@@ -471,6 +472,7 @@ int main(int argc, char** argv){
           eddington_stars.set_profile_den(profile_plummer);
           eddington_stars.set_profile_pot(profile_nfw);
           eddington_stars.set_profile_pot(profile_plummer);
+          eddington_stars.generate_fE_arr(500, Length/Nx, Length);
           multi_array<double,2> stars_arr = D3.generate_stars_disk(&eddington_stars, Length/Nx, Length/2);
           D3.put_initial_stars(stars_arr);
           // World rank 0 creates the star backup, then all the other ranks will take from this backup
@@ -483,7 +485,7 @@ int main(int argc, char** argv){
     else{
       run_ok=false; 
       if (world_rank==0)
-        cout<<"You need 4 arguments to pass to the code: rs, rhos, r_plummer, M_plummer, num_k, numstep_relax" << endl;
+        cout<<"You need 6 arguments to pass to the code: rs, rhos, r_plummer, M_plummer, num_k, numstep_relax" << endl;
     }
   }
 

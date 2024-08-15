@@ -354,6 +354,15 @@ class Eddington{
         result=-1;
       return result;
     }
+  
+  // Computes the array to make interpolation of f(E)
+  void generate_fE_arr(int numpoints, double radmin, double radmax){
+    if ((analytic_Edd[0] == false || same_profile_den_pot ==false) || analytic_Edd.size()>1){ 
+      compute_d2rho_dpsi2_arr(numpoints, radmin, radmax);
+      compute_fE_arr();
+    }
+  }
+
 };
 
 #endif
