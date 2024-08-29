@@ -596,6 +596,31 @@ int main(int argc, char** argv){
     }
   }
 
+  // Static NFW initial conditon, psi = sqrt(rho)
+  else if (initial_cond == "staticProfile_NFW" ) {
+    if (params_initial_cond.size() > 1){
+      double rs = stod(params_initial_cond[0]); // NFW scale radius
+      double rhos = stod(params_initial_cond[1]); // NFW normalization
+      outputname = directory_name+"out_static_NFW" + outputname+ "rs_" 
+        + to_string(rs) + "_rhos_" + to_string(rhos) + "_";
+      
+      D3.set_output_name(outputname);
+      D3.set_ratio_masses(ratio_mass);
+      NFW *nfw_profile = new NFW(rs, rhos, Length, true);// The actual max radius is between Length and Length/2
+      if(start_from_backup=="true")
+        D3.initial_cond_from_backup();
+      else
+        D3.set_static_profile(nfw_profile,0);
+    }
+    else{
+      run_ok=false; 
+      if (world_rank==0){
+        cout<<"You need 2 arguments to pass to the code: rs, rhos" <<endl;
+      }
+    }
+  }
+
+
 
   else{
     run_ok=false; 
@@ -607,6 +632,7 @@ int main(int argc, char** argv){
   }
 
   if(run_ok==true){
+      cout<<"File name of the run: "<< outputname <<endl;
       D3.set_grid(grid3d_flag);
       D3.set_grid_phase(phase_flag); // It will output 2D slice of phase grid
       D3.set_backup_flag(backup_bool);

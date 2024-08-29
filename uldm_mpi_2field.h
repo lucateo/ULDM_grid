@@ -23,7 +23,7 @@
 using namespace std;
 using namespace boost;
 
-// extern tells the compiler that the function is definedsomewhere else (in this case, utilities.cpp),
+// extern tells the compiler that the function is defined somewhere else (in this case, utilities.cpp),
 // to avoid redefinition errors; couple this with ifndef statement
 //random double betwenn fMin and fMax
 extern double fRand(double fMin, double fMax); 
@@ -60,6 +60,7 @@ extern double interpolant(double x, vector<double> & xarr, vector<double> & yarr
 extern void export_for_plot(string name, vector<double> &xarr, vector<double> &yarr);
 
 class Eddington;  // Forward declaration, to avoid multiple headers calling each other issues
+class Profile;  // Forward declaration, to avoid multiple headers calling each other issues
 
 // File printing functions; template class should be defined in the header
 inline int dimension(const multi_array<double,3> & arr){ return arr.shape()[arr.num_dimensions()-1]; }
@@ -344,6 +345,7 @@ class domain3{
       void outputfullPsi(ofstream& fileout, bool backup, int reduce_grid);
       // Virtual because for the NFW case (for example) you want to compute radial functions starting from the center of the box and not the maximum
       virtual multi_array<double,2> profile_density(int whichPsi);
+      double get_maxx(int whichPsi, int coord);
       void snapshot(double stepCurrent);
       void snapshot_profile(double stepCurrent);
       // Stores in spectrum_vect quantities relevant for spectrum energy computation
@@ -388,33 +390,10 @@ class domain3{
       void setEllitpicCollapse(double norm, double a_e, double b_e, double c_e, int whichPsi, bool rand_phases, double Acorr, double lcorr);
       // Use a file with density and velocity at each grid point to be implemented in the grid
       void set_initial_from_file(string filename_in, string filename_vel); 
+      // Sets a static profile, psi=sqrt(rho) without phases
+      void set_static_profile(Profile *profile, int whichF);
       void setEddington(Eddington *eddington, int numpoints, double radmin, double radmax, int fieldid, 
           double ratiomass, int num_k, bool simplify_k, int center_x, int center_y, int center_z);
-
-       // functions below not adapted for MPI yet
- /*
-        double phi_max(){ // Finds the maximum of the potential Phi
-          double phi_maximum = 0;
-          for(int i=0;i<PointsS;i++)
-                for(int j=0; j<PointsS;j++)
-                    for(int k=0; k<PointsSS;k++){
-                      double phi_temp = Phi[i][j][k];
-                      if (phi_temp > phi_maximum)
-                      {phi_maximum =phi_temp; }
-                    }
-          return phi_maximum;
-        }
-        // Computes the Phi average, for testing purposes (it should be zero)
-        double phi_average(){
-          double average = 0;
-          for(int i=0;i<PointsS;i++)
-                for(int j=0; j<PointsS;j++)
-                    for(int k=0; k<PointsS;k++){
-                      average = average + Phi[i][j][k];
-                    }
-          return average;
-        }
-*/
 
 };
 

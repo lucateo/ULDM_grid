@@ -120,6 +120,11 @@ void domain3::outputfullPsi(ofstream& fileout, bool backup, int reduce_grid){// 
   fileout.close();
 }
 
+// Returns the maximum coordinate coord value of the field whichPsi
+double domain3::get_maxx(int whichPsi, int coord){
+  return maxx[whichPsi][coord];
+}
+
 
 void domain3::outputSlicedDensity(ofstream& fileout){ // Outputs the projected 2D density profile
   // multi_array<double,3> density_sliced(extents[nfields][PointsS][PointsS]);

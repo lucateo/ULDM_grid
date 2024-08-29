@@ -453,6 +453,40 @@ void domain3::set_initial_from_file(string filename_in, string filename_vel){
         }
 }
 
+void domain3::set_static_profile(Profile *profile, int whichF){
+  // Sets the initial condition to be a static profile, for the various fields
+  if(world_rank==0){
+    if (first_initial_cond == true){ 
+      info_initial_cond.open(outputname+"initial_cond_info.txt");
+      first_initial_cond = false;
+    }
+    else info_initial_cond.open(outputname+"initial_cond_info.txt", ios_base::app);
+    info_initial_cond.setf(ios_base::fixed); 
+    info_initial_cond<<profile->name_profile;
+    for(int i = 0; i < profile->params.size(); i++){
+      info_initial_cond<<" "<<profile->params_name[i]<<" "<<profile->params[i];
+    }
+    info_initial_cond<<" "<< ratio_mass[whichF] << endl;
+    info_initial_cond.close();
+  }
+  int extrak= PointsSS*world_rank -nghost; // Take into account the node where you are
+  int center = PointsS/2; // Be careful, PointsS is not an int
+  #pragma omp parallel for collapse(3)
+  for(int i=0;i<PointsS;i++){
+    for(int j=0; j<PointsS;j++){
+      for(int k=nghost; k<PointsSS+nghost;k++){
+        double rad = deltaX * sqrt( pow( i - center,2)+ pow( j - center,2) 
+          + pow( k +extrak - center,2));
+        // Avoid division by zero
+        if (rad==0) {psi[2*whichF][i][j][k] += sqrt( profile->density(deltaX/10) );}
+        else
+          psi[2*whichF][i][j][k] += sqrt( profile->density(rad) );
+      }
+    }
+  }
+  #pragma omp barrier
+}
+
 void domain3::setEddington(Eddington *eddington, int numpoints, double radmin, double radmax, int fieldid, 
   double ratiomass, int num_k, bool simplify_k, int center_x, int center_y,int center_z){
   // If simplify_k is true, then it inserts the random phases as gaussians on |k|; if false, then it inserts the random phases
@@ -463,7 +497,7 @@ void domain3::setEddington(Eddington *eddington, int numpoints, double radmin, d
     eddington->compute_d2rho_dpsi2_arr(numpoints, radmin, radmax);
     eddington->compute_fE_arr();
     cout<<"Finished computing numeric f(E) for Eddington initial conditions"<<endl;
-    if (world_rank == 0){
+   if (world_rank == 0){
       vector<double> psiarr = eddington->get_psiarr();
       vector<double> fe_arr = eddington->get_fE_arr();
       cout<< "E values" << "\t"<<"f(E)" << endl;

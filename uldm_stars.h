@@ -444,7 +444,10 @@ void open_filestars(){
 }
 
 // Generate num_stars_eff stars using eddington procedure
-multi_array<double, 2> generate_stars(Eddington * eddington, double rmin, double rmax){
+multi_array<double, 2> generate_stars(Eddington * eddington, double rmin, double rmax,
+  vector<double> xmax, vector<double> vel_cm){
+// xmax is the maximum value of the density location vector, 
+// vcm is the center of mass velocity
   multi_array<double, 2> stars_arr(extents[num_stars_eff][8]);
   // Random seed
   random_device rd;
@@ -474,13 +477,16 @@ multi_array<double, 2> generate_stars(Eddington * eddington, double rmin, double
       double dy = eddington->profile_density(r1)*r1*r1 + eddington->profile_density(r2)*r2*r2;
       bin+= 0.5*dx*dy;
     }
-    cumulative_x.push_back( cumulative_x[i] + bin*4*M_PI/eddington->profiles_massMax(Length/2));
+    cumulative_x.push_back( cumulative_x[i] + bin*4*M_PI/eddington->profiles_massMax(rmax));
   }
-
+  // for(int i=0; i<cumulative_x.size(); i++) cout<< cumulative_x[i] << " " << r_arr[i] << endl;
   for(int i=0; i<num_stars_eff; i++){
     double rand = fRand(0,1);
     double x_rand = interpolant(rand, cumulative_x, r_arr);
-    // cout<< "rand " << rand << " x_rand " << x_rand << endl;
+    // To avoid f(E) issues, ensure you are not computing anything below rmin 
+    if(x_rand<rmin) x_rand = rmin;
+    // Also avoid the maximum value, to avoid vmax=0 singularities
+    if(x_rand == rmax) x_rand = rmax - rmax*1E-8;
     // Find cumulative on velocity
     vector<double> v_arr; // Interpolating array, random uniform variable
     vector<double> cumulative_v; // Cumulative of p(v|x) array
@@ -488,7 +494,8 @@ multi_array<double, 2> generate_stars(Eddington * eddington, double rmin, double
     double vmin = 0.001*vmax;
     // The first bin should be zero
     v_arr.push_back(0); 
-    cumulative_v.push_back(0); 
+    cumulative_v.push_back(0);
+    // i arrives until npoints-1 to not overshoot with f(E)
     for(int i=0; i< npoints+1; i++){ 
       double v = pow(10 ,(log10(vmax) -log10(vmin))/(npoints)* i + log10(vmin));
       v_arr.push_back(v);
@@ -496,6 +503,7 @@ multi_array<double, 2> generate_stars(Eddington * eddington, double rmin, double
       double vmin_int;
       if(i==0) vmin_int = 0.1*vmin;
       else vmin_int = v_arr[i];
+      // j arrives until numpoints_int-1 to not overshoot with f(E)
       for(int j=0; j< numpoints_int; j++){
         double v1 = pow(10 ,(log10(v) -log10(vmin_int))/(numpoints_int)* j + log10(vmin_int));
         double v2 =pow(10 ,(log10(v) -log10(vmin_int))/(numpoints_int)* (j+1) + log10(vmin_int));
@@ -507,6 +515,10 @@ multi_array<double, 2> generate_stars(Eddington * eddington, double rmin, double
         bin+= 0.5*dx*dy;
       }
       cumulative_v.push_back(cumulative_v[i] + bin*4*M_PI/eddington->profile_density(x_rand));
+    }
+    if (isnan(cumulative_v[npoints])) {
+      // cout<< "NAN " << x_rand << " " << eddington->psi_potential(x_rand) << " " <<v_arr[npoints] << endl;
+      for (int i=0; i<cumulative_v.size(); i++) cout<< cumulative_v[i] << " " << v_arr[i] << endl;
     }
     double rand2 = fRand(0,1);
     double v_rand = interpolant(rand2, cumulative_v, v_arr);
@@ -522,15 +534,18 @@ multi_array<double, 2> generate_stars(Eddington * eddington, double rmin, double
     stars_arr[i][0]=1; // Set the mass to 1
     // cout << "star " << i << " " << x_rand << " " << v_rand << " ";
     for (int k=1;k<4;k++){
-      // Generate the three x coordinates and center them at the center of the grid
-      stars_arr[i][k] = x_rand*star[k-1]/mod_x + Length/2;
+      // Generate the three x coordinates and center them at the maximum density
+      stars_arr[i][k] = x_rand*star[k-1]/mod_x + xmax[k-1];
+      // if (isnan(stars_arr[i][k]) ) cout << "NAN " << x_rand << " " << x_rand << " " << mod_x << " " << mod_x << endl;
       // cout<< stars_arr[i][k]  << " ";
     }
     for (int k=4;k<7;k++){
-      stars_arr[i][k] = v_rand*star[k-1]/mod_v; // Generate the three v coordinates
-      // cout<< stars_arr[i][k]  << " ";
+      stars_arr[i][k] = v_rand*star[k-1]/mod_v + vel_cm[k-4]; // Generate the three v coordinates
+    //   if (isnan(stars_arr[i][k]) ) {
+    //   // cout << "NAN vel " << v_rand << " " << rand2 << " " << mod_v << " " << mod_v << endl;
+    //   for(int i=0; i< cumulative_v.size(); i++) cout<< cumulative_v[i] << " " << v_arr[i] << endl;
+    // }  // cout<< stars_arr[i][k] << " ";
     }
-    // cout<<endl;
   }
   return stars_arr;
 }
@@ -565,23 +580,27 @@ multi_array<double, 2> generate_stars_disk(Eddington * eddington, double rmin, d
       double dy = eddington->profile_surface_density(r1)*r1 + eddington->profile_surface_density(r2)*r2;
       bin+= 0.5*dx*dy;
     }
-    cumulative_x.push_back( cumulative_x[i] + bin*2*M_PI/eddington->profiles_massMax(Length/2));
+    cumulative_x.push_back( cumulative_x[i] + bin*2*M_PI/eddington->profiles_massMax(rmax));
   }
 
   for(int i=0; i<num_stars_eff; i++){
     double rand = fRand(0,1);
     double x_rand = interpolant(rand, cumulative_x, r_arr);
-    // Randomize point on the sphere
+    // Randomize point on the circle
     double theta= fRand(0,2*M_PI);
     // Use the potential profiles to get the circular velocity, case where
     // density is just Plummer but potential dominated by dark matter
     double vel = sqrt(eddington->profiles_massMax_pot(x_rand)/(4*M_PI*x_rand));
+    // Now I want a random eccentricity, randomize vhat_phi and vhat_r
+    // This gives a maximum eccentricity of 0.23
+    double vhat_phi = fRand(0.9,1.1); // Should be close to 1
+    double vhat_r = fRand(-0.1,0.1); // Should be close to 0
     stars_arr[i][0] = 1; // Mass
     stars_arr[i][1] = x_rand*cos(theta)+ Length/2; // x coordinate
     stars_arr[i][2] = x_rand*sin(theta)+ Length/2; // y coordinate
     stars_arr[i][3] = Length/2; // z coordinate
-    stars_arr[i][4] = vel*sin(theta); // vx
-    stars_arr[i][5] = -vel*cos(theta); // vy
+    stars_arr[i][4] = vel*(-vhat_phi*sin(theta) + vhat_r*cos(theta) ); // vx
+    stars_arr[i][5] = vel*(vhat_phi*cos(theta) + vhat_r*sin(theta)); // vy
     stars_arr[i][6] = 0; // vz
   }
   return stars_arr;
@@ -685,6 +704,12 @@ virtual void solveConvDif(){
         sortGhosts(); // Should be called, to do derivatives in real space
       }
       snapshot(stepCurrent);
+    }
+    if(stepCurrent%numoutputs_profile==0 || stepCurrent==numsteps) {
+      if (mpi_bool==true){ 
+        sortGhosts(); // Should be called, to do derivatives in real space
+      }
+      snapshot_profile(stepCurrent);
       if (world_rank==0){
         output_stars();
         out_star_backup();
@@ -694,12 +719,6 @@ virtual void solveConvDif(){
       outputfullPhi(phi_final);
       ofstream psi_final;
       outputfullPsi(psi_final,true,1);
-    }
-    if(stepCurrent%numoutputs_profile==0 || stepCurrent==numsteps) {
-      if (mpi_bool==true){ 
-        sortGhosts(); // Should be called, to do derivatives in real space
-      }
-      snapshot_profile(stepCurrent);
     }
   }
   closefiles();

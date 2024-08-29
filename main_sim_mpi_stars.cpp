@@ -342,7 +342,9 @@ int main(int argc, char** argv){
         
         // Generate stars
         if(world_rank==0){
-          multi_array<double, 2> stars_arr = D3.generate_stars(&eddington,Length/Nx, Length/2);
+          vector<double> xmax = {Length/2, Length/2, Length/2};
+          vector<double> v_cm = {0, 0, 0};
+          multi_array<double, 2> stars_arr = D3.generate_stars(&eddington,Length/Nx, Length/2, xmax, v_cm);
           D3.put_initial_stars(stars_arr);
           // World rank 0 creates the star backup, then all the other ranks will take from this backup
           D3.out_star_backup(); 
@@ -387,7 +389,7 @@ int main(int argc, char** argv){
         // Sets the number of steps to relax the halo
         D3.set_numsteps(numstep_relax);
         NFW *profile_nfw = new NFW(rs, rhos, Length, true);// The actual max radius is between Length and Length/2
-        Plummer *profile_plummer = new Plummer(r_plummer, M_plummer, Length, true);// The actual max radius is between Length and Length/2
+        // For stars, there is no meaning to put Length as rmax
         Eddington eddington_nfw = Eddington(true);
         eddington_nfw.set_profile_den(profile_nfw);
         eddington_nfw.set_profile_pot(profile_nfw);
@@ -404,11 +406,25 @@ int main(int argc, char** argv){
         // Then generate stars
         if(world_rank==0){
           Eddington eddington_stars = Eddington(false);
+          Plummer *profile_plummer = new Plummer(r_plummer, M_plummer, Length/3, true);
+          // If you define a different max length, you should define a new Profile 
+          // with that max length
+          NFW *profile_nfw_stars = new NFW(rs, rhos, Length/3, true);
           eddington_stars.set_profile_den(profile_plummer);
-          eddington_stars.set_profile_pot(profile_nfw);
-          eddington_stars.set_profile_pot(profile_plummer);
-          eddington_stars.generate_fE_arr(500, Length/Nx, Length);
-          multi_array<double,2> stars_arr = D3.generate_stars(&eddington_stars,Length/Nx, Length/2);
+          eddington_stars.set_profile_pot(profile_nfw_stars);
+          // Stars gravity is not taken into account, so the potential 
+          // should be just nfw
+          // eddington_stars.set_profile_pot(profile_plummer);
+          eddington_stars.generate_fE_arr(500, Length/Nx, Length/3);
+          vector<double> xmax;
+          vector<double> v_cm;
+          for (int i=0; i<3; i++){
+            xmax.push_back(D3.get_maxx(0,i)*Length/Nx);
+            // v_cm.push_back(D3.v_center_mass(i,0));
+            v_cm.push_back(0);
+          }
+          multi_array<double,2> stars_arr = D3.generate_stars(&eddington_stars,
+            Length/Nx, Length/3, xmax, v_cm);
           D3.put_initial_stars(stars_arr);
           // World rank 0 creates the star backup, then all the other ranks will take from this backup
           D3.out_star_backup(); 
@@ -452,7 +468,7 @@ int main(int argc, char** argv){
         // Sets the number of steps to relax the halo
         D3.set_numsteps(numstep_relax);
         NFW *profile_nfw = new NFW(rs, rhos, Length, true);// The actual max radius is between Length and Length/2
-        Plummer *profile_plummer = new Plummer(r_plummer, M_plummer, Length, true);// The actual max radius is between Length and Length/2
+        // For stars, there is no meaning to put Length as rmax
         Eddington eddington_nfw = Eddington(true);
         eddington_nfw.set_profile_den(profile_nfw);
         eddington_nfw.set_profile_pot(profile_nfw);
@@ -469,11 +485,17 @@ int main(int argc, char** argv){
         // Then generate stars
         if(world_rank==0){
           Eddington eddington_stars = Eddington(false);
+          Plummer *profile_plummer = new Plummer(r_plummer, M_plummer, Length/3, true);
+          // If you define a different max length, you should define a new Profile 
+          // with that max length
+          NFW *profile_nfw_stars = new NFW(rs, rhos, Length/3, true);// The actual max radius is between Length and Length/2
           eddington_stars.set_profile_den(profile_plummer);
-          eddington_stars.set_profile_pot(profile_nfw);
-          eddington_stars.set_profile_pot(profile_plummer);
-          eddington_stars.generate_fE_arr(500, Length/Nx, Length);
-          multi_array<double,2> stars_arr = D3.generate_stars_disk(&eddington_stars, Length/Nx, Length/2);
+          eddington_stars.set_profile_pot(profile_nfw_stars);
+          // Stars gravity is not taken into account, so the potential 
+          // should be just nfw
+          // eddington_stars.set_profile_pot(profile_plummer);
+          eddington_stars.generate_fE_arr(500, Length/Nx, Length/3);
+          multi_array<double,2> stars_arr = D3.generate_stars_disk(&eddington_stars, Length/Nx, Length/3);
           D3.put_initial_stars(stars_arr);
           // World rank 0 creates the star backup, then all the other ranks will take from this backup
           D3.out_star_backup(); 
@@ -498,6 +520,7 @@ int main(int argc, char** argv){
   }
 
   if(run_ok==true){
+      cout<<"File name of the run: "<< outputname <<endl;
       D3.solveConvDif();
   }
 

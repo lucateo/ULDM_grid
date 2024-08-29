@@ -197,6 +197,81 @@ class Hernquist: public Profile{
     double analytic_fE(double psi) {return -1;} // No analytic
 };
 
+// A generic profile, to which you feed the radially averaged density profile
+class Generic: public Profile{
+  protected:
+    // The radially averaged density profile
+    vector<double> Density_rad;
+    // The radius corresponding to density_rad
+    vector<double> Radius;
+    double Rmax;
+    bool dimensionless_units = false; // If true, put G -> 1/(4\pi) for dimensionless units
+    double G_eff = G_ASTRO;
+    double dr; // delta r spacing
+  public:
+    Generic(vector<double> &density_rad,vector<double> &radius,double rmax, bool dimless_bool): Profile{}, Rmax(rmax), dimensionless_units(dimless_bool) {
+      analytic_Eddington = false;
+      name_profile = "Generic";
+      Density_rad = density_rad;
+      Radius = radius;
+      dr = radius[1]-radius[0];
+      if(dimensionless_units == true) G_eff = 1 /(4*M_PI);
+    };
+    Generic() {};
+    ~Generic() {};
+    
+    double potential(double r){
+      double result = -mass_rmax(r)/(4*M_PI*r);
+      double rr =r;
+      while (rr<Rmax){
+        result += -interpolant(rr, Radius, Density_rad)*rr*dr;
+        rr+=dr;
+      }
+      return result;
+    }
+
+    double density(double r){ 
+      return interpolant(r, Radius, Density_rad);
+    }
+    // Surface density, unreliable for r \sim rmax
+    double surface_density(double r){
+      double result = 0;
+      for (int i=0; i<Radius.size();i++){
+        double rad_compute =sqrt(r*r+Radius[i]*Radius[i]); 
+        if (rad_compute<Rmax){
+          double density_integrand = 
+            interpolant(rad_compute, Radius, Density_rad);
+          // 2 factor for sum over positive and negative z
+          result += 2*2*M_PI*density_integrand*dr;
+        }
+      }
+      return result;
+    }
+    double Psi(double r){
+      return -potential(r) + potential(Rmax);
+    }
+    double mass_rmax(double rmax){
+      double mass = 0;
+      for(int i=0; i<Radius.size();i++){
+        if(Radius[i]<rmax){
+          mass += Density_rad[i]*4*M_PI*Radius[i]*Radius[i]*dr;
+        }
+      }
+      return mass;
+    }
+
+    double analytic_d2rho_dpsi(double psi) {
+      return -1;
+    }
+    double analytic_small_radius(double psi){//No analytic
+      return -1;
+    }
+    double analytic_fE(double psi) {
+      return -1;
+    }
+};
+
+
 class Eddington{
   protected:
     // I need pointers if I am using pure virtual functions
@@ -289,7 +364,7 @@ class Eddington{
         // Go with inverse order, ordering psi from smallest to largest
         double radius = pow(10, (log10(rmax) -log10(rmin))/(numpoints-1) * (numpoints-1-i) +log10(rmin) ); // Log spaced
         double psi = psi_potential(radius);
-        if(abs((psi - psiarr[j])/(psi + psiarr[j])) > 1E-7){ // If the relative change is larger than 1e-7, accept the point (to avoid very tiny changes in psi)
+        if(abs((psi - psiarr[j])/(psi + psiarr[j])) > 1E-10){ // If the relative change is larger than 1e-7, accept the point (to avoid very tiny changes in psi)
           rho_arr.push_back(profile_density(radius));
           psiarr.push_back(psi_potential(radius));
           j++;
@@ -361,8 +436,13 @@ class Eddington{
       compute_d2rho_dpsi2_arr(numpoints, radmin, radmax);
       compute_fE_arr();
     }
+    cout<< "E values" << "\t"<<"f(E)" << endl;
+    for(int i=0; i< psi_arr.size(); i++){
+      cout<< scientific << psi_arr[i] << "\t"<<FE_arr[i] << endl;
+    }
+    cout << fixed;
   }
-
+ 
 };
 
 #endif

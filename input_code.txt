@@ -18,8 +18,8 @@
 # The third line are hyperparameters like the option for mpi, etc.; order:
 #if mpi=1, sets the grid for mpi; if set3Dgrid=1, sets the output to be the full psi field, instead of just projected density, with resolution reduced by a factor reduce_grid; if outputPhase=1, it outputs a slice of the phase field
 #nfields, Nx, L, dt, Nsteps, outN, outN_profile, name, backup, directory_name
-1 128 100 0.5 15000 1000 1000 Schive false out_test/
-5 5 60 1
+1 128 100 0.1 1500 100 100 staticProfile_NFW false out_test/
+10 0.014
 # mpi, set3Dgrid, outputPhase, reduce_grid, adaptive_dt_flag, spectrum_flag
 0 0 0 1 1 1
 
