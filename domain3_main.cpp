@@ -486,8 +486,6 @@ void domain3::solveConvDif(){
       }
       snapshot_profile(stepCurrent);
       exportValues(); // for backup purposes
-      ofstream phi_final;
-      outputfullPhi(phi_final);
       ofstream psi_final;
       outputfullPsi(psi_final,true,1);
     }
@@ -499,50 +497,53 @@ void domain3::solveConvDif(){
 
 void domain3::initial_cond_from_backup(){
   // multi_array<double,1> Arr1D(extents[PointsS*PointsS*PointsSS]);
-  string outputname_file;
-  if(mpi_bool==true){
-    outputname_file = outputname + "phi_final_" + to_string(world_rank) + ".txt";
-  }
-  else {
-    outputname_file = outputname + "phi_final.txt";
-  }
-  ifstream infile(outputname_file);
-  string temp;
-  double num;
-  // size_t l = 0;
-  size_t i = 0; size_t j = 0; size_t k = 0;
-  // Get the input from the input file
-  while (std::getline(infile, temp, ' ')) {
-  // Add to the list of output strings
-    if(i<PointsS){
-      Phi[i][j][k] = stod(temp);
-      i++;
-    }
-    if(i==PointsS){
-      if(j<PointsS-1) {
-        i=0;
-        j++;
-      }
-      else if(j==PointsS-1 && k<PointsSS-1){
-        i=0; j=0; k++;
-      }
-    }
-  }
+  // string outputname_file;
+  // if(mpi_bool==true){
+  //   outputname_file = outputname + "phi_final_" + to_string(world_rank) + ".txt";
+  // }
+  // else {
+  //   outputname_file = outputname + "phi_final.txt";
+  // }
+  // ifstream infile(outputname_file);
+  // string temp;
+  // double num;
+  // // size_t l = 0;
+  // size_t i = 0; size_t j = 0; size_t k = 0;
+  // // Get the input from the input file
+  // while (std::getline(infile, temp, ' ')) {
+  // // Add to the list of output strings
+  //   if(i<PointsS){
+  //     Phi[i][j][k] = stod(temp);
+  //     i++;
+  //   }
+  //   if(i==PointsS){
+  //     if(j<PointsS-1) {
+  //       i=0;
+  //       j++;
+  //     }
+  //     else if(j==PointsS-1 && k<PointsSS-1){
+  //       i=0; j=0; k++;
+  //     }
+  //   }
+  // }
   // for(size_t i =0; i<PointsS; i++)
   //   for(size_t j =0; j<PointsS; j++)
   //     for(size_t k =0; k<PointsSS; k++){
   //       // cout<<i<<endl;
   //       Phi[i][j][k] = Arr1D[i+j*PointsS+k*PointsS*PointsS];
   //     }
-  infile.close();
+  // infile.close();
+  string outputname_file;
   if(mpi_bool==true){
     outputname_file = outputname + "psi_final_" + to_string(world_rank) + ".txt";
   }
   else {
     outputname_file = outputname + "psi_final.txt";
   }
-  infile = ifstream(outputname_file);
-  i=0; j=0; k=0; size_t m =0;
+  ifstream infile(outputname_file);
+  size_t i = 0; size_t j = 0; size_t k = 0;
+  size_t m =0;
+  string temp;
   while (std::getline(infile, temp, ' ')) {
   // Add to the list of output strings
     if(i<PointsS){

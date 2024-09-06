@@ -1,0 +1,35 @@
+# This is the input file code for 'main_sim_mpi_2field.cpp' Lines which start with the # character are ignored. 
+# In the following, an example of input parameters (notice that there are three lines, none of them starting with #): 
+2 256 100 0.1 10000 400 100 1Sol false out_test/
+5 0 1
+0 0 0 1 1 1
+# The first line corresponds to the following parameters (in order):
+# "2": number of fields
+# "256": the number of points in the grid in the linear dimension (the actual total number of points would be 128^3)	
+# "100": the length of the box in grid units 
+# "0.1": initial time-step in grid units; if the flag for adaptive time step is off (see later), the code will keep this time-step for the whole run
+# "10000": the number of time-steps
+# "400": every 400 time-steps, the code outputs in a file 2D (or 3D depending on a flag, see later) profile density snapshot
+# "100": every 100 timesteps, the code outputs in a file radially averaged profile snapshots (density, gravitational potential, kinetic and potential energy)
+# "1Sol": string which specifies the initial condition, in this case a single soliton in the center of the box. See the code for all the initial conditions and the related string and required parameters.
+# "false": if true, starts from a already saved run, with the same parameters. Default should be false
+# "out_test/": name of the directory where all the outputs are stored. The code does not create this directory, which has to be there already.
+#
+# To summarize, in this example we perform a run of "2" fields with a box of "256"^3 points, 
+# whose length is "100" in grid units, initial dt="0.1", with "10000" time steps, 
+# snapshot of profile every "400" timesteps, snapshot of projected density every "100" timesteps, 
+# initial condition "1Sol" corresponding to a single soliton for a specified field, 
+# which does not start from a backup run ("false") and whose (already existing) output directory 
+# is "out_test/"
+#
+# The second line specify the parameters of the initial condition chosen; 
+# in this example, rc =5
+# 
+# The third line are hyperparameters like the option for mpi, etc.; order:
+# mpi: 1 if you use mpi, 0 otherwise (the code supports openmp parallelization in a single node even with this option set to 0)
+# set3Dgrid: determines whether outputs the projected 2D density profile (0) or the full 3D density profile (1) 
+# outputPhase: 0 does not output field phases in a 2D slice, 1 yes 
+# reduce_grid: integer specifying the reduction of 3D grid, if set3Dgrid ==1 (example, reduce_grid=2 from a 128^3 point grid will output 64^3 density snapshot)
+# adaptive_dt_flag: with 0, dt is constant throughout the whole run, with 1, dt is determined by enforcing energy conservation 
+# spectrum_flag: 1 outputs the energy spectrum, 0 it does not
+

@@ -21,7 +21,6 @@ int main(int argc, char** argv){
   if (file.is_open()) {
     string line;
     while (std::getline(file, line)) {
-      // using printf() in all tests for consistency
       if (line[0] !='#'){
         stringstream linestream; 
         linestream<<line ;
@@ -29,14 +28,11 @@ int main(int argc, char** argv){
         while (linestream >> w) {
           if(whichline==0){ 
             params_sim.push_back(w);
-            // cout<< w << " " << whichline<< endl;
           }
           else if (whichline==1){ 
             params_initial_cond.push_back(w);
-            // cout<< w << " " << whichline<< endl;
           }
           else if (whichline==2){ 
-            // cout<< w << " " << whichline<< endl;
             hyperparams.push_back(w);
           }
         }
@@ -80,7 +76,7 @@ int main(int argc, char** argv){
   string directory_name = params_sim[9]; // Directory name
   
   // Chek that parameters are loaded correctly
-  cout<< num_fields << " " << Nx << " " << Length << " " << dt << " "<< numsteps << " " << outputnumb << " " << outputnumb_profile <<
+  cout<< "Check parameters loaded correctly " << num_fields << " " << Nx << " " << Length << " " << dt << " "<< numsteps << " " << outputnumb << " " << outputnumb_profile <<
   " "<< initial_cond << " " << start_from_backup<< endl;
   
   // mpi 
@@ -109,8 +105,7 @@ int main(int argc, char** argv){
   }
 
   int beginning=time(NULL);
-  // srand(time(NULL));
-  //srand(42);
+  srand(time(NULL));
 
   // keep all the boxes the same height for simplicity, so change if not divisible
   if(mpirun_flag==true && Nx%world_size!=0){
@@ -626,8 +621,9 @@ int main(int argc, char** argv){
     run_ok=false; 
     if (world_rank==0){
       cout<< "String in 8th position does not match any possible initial conditions; possible initial conditions are:" << endl;
-      cout<< "Schive , Mocz , deterministic , levkov, delta, theta, 1Sol, NFW, NFW_solitons, NFW_ext_Eddington, eddington_nfw,";
-      cout<<" eddington_nfw_halos, eddington_nfw_levkov, eddington_nfw_soliton, stars, stars_soliton, elliptCollapse" <<endl;
+      cout<< "Schive , Mocz , deterministic , levkov, delta, theta, 1Sol, NFW, NFW_solitons, NFW_ext_Eddington, eddington_nfw," <<endl;
+      cout<<" eddington_nfw_halos, eddington_nfw_levkov, eddington_nfw_soliton, stars, stars_soliton, elliptCollapse," <<endl;
+      cout<<" staticProfile_NFW" <<endl;
     }
   }
 

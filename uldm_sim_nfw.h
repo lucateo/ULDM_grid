@@ -3,85 +3,124 @@
 #include "uldm_mpi_2field.h"
 #include "eddington.h"
 #include <vector>
-// double nfw_potential(double r, double Rs, double normalization){
-//   // normalization = G \rho_0/(\gamma^2 m^2); \gamma is an adimensional rescaling parameter, which is \gamma = v_0^2 for Levkov initial waves
-//   double result;
-//   if(r !=0){result = -4*M_PI * normalization * pow(Rs, 3) / r * log(1 + r/Rs);}
-//   else{result = -4*M_PI * normalization * pow(Rs, 2);}
-//   return result;
-// }
 
-class domain_ext: public domain3
-{public:
-  vector<Profile*> profiles;
-  // Profile * profile;
-  domain_ext(size_t PS,size_t PSS, double L, int nfields, int Numsteps, double DT, int Nout, int Nout_profile, 
-          int pointsm, int WR, int WS, int Nghost, bool mpi_flag):
-    domain3{PS, PSS, L, nfields, Numsteps, DT, Nout, Nout_profile, 
-           pointsm, WR, WS, Nghost, mpi_flag} {};
-  domain_ext() { }; // Default constructor
-  ~domain_ext() { };
+/**
+ * @brief Extended domain class inheriting from domain3, inserts an external potential.
+ */
+class domain_ext: public domain3 {
+  public:
+    vector<Profile*> profiles; ///< Vector of profile pointers.
 
-void set_profile(Profile * Profile) { profiles.push_back(Profile);}
+    /**
+     * @brief Constructor for domain_ext.
+     * @param PS Points in one dimension.
+     * @param PSS Points in one dimension with ghost cells.
+     * @param L Length of the domain.
+     * @param nfields Number of fields.
+     * @param Numsteps Number of steps.
+     * @param DT Time step size.
+     * @param Nout Number of outputs.
+     * @param Nout_profile Number of profile outputs.
+     * @param pointsm Number of points in the mesh.
+     * @param WR Write flag.
+     * @param WS Write step.
+     * @param Nghost Number of ghost cells.
+     * @param mpi_flag MPI flag.
+     */
+    domain_ext(size_t PS, size_t PSS, double L, int nfields, int Numsteps, double DT, int Nout, int Nout_profile, 
+               int pointsm, int WR, int WS, int Nghost, bool mpi_flag):
+        domain3{PS, PSS, L, nfields, Numsteps, DT, Nout, Nout_profile, pointsm, WR, WS, Nghost, mpi_flag} {};
 
-// psi -> exp(-i tstep d_alpha (Phi + Phi_ext)) psi; does a step forward or with the opposite sign by changing the sign of tstep
-virtual void expiPhi(double tstep, double da, int whichPsi){
-  double r = ratio_mass[whichPsi];
-  int extrak = world_rank*PointsSS - nghost;
-  #pragma omp parallel for collapse(3)
-  for(size_t i=0;i<PointsS;i++)
-    for(size_t j=0;j<PointsS;j++)
-      for(size_t k=nghost;k<PointsSS+nghost;k++){
-        double Repsi=psi[2*whichPsi][i][j][k];
-        double Impsi=psi[2*whichPsi+1][i][j][k]; // caution: Phi doesn't have ghost cells so there's a relative shift in k
-        // Locate the center of the nfw potential in the center of the grid
-        int Dx=PointsS/2 -(int)i; if(abs(Dx)>PointsS/2){Dx=abs(Dx)-(int)PointsS;} // workaround which takes into account the periodic boundary conditions
-        int Dy=PointsS/2 -(int)j; if(abs(Dy)>PointsS/2){Dy=abs(Dy)-(int)PointsS;} // periodic boundary conditions!
-        int Dz=PointsS/2 -(int)k -extrak; if(abs(Dz)>PointsS/2){Dz=abs(Dz)-(int)PointsS;} // periodic boundary conditions!
-        double distance=pow(Dx*Dx+Dy*Dy+Dz*Dz, 0.5) * deltaX;
-        double potential = 0;
-        for(int p=0; p<profiles.size();p++){
-          potential = potential + profiles[p]->potential(distance);
+    /**
+     * @brief Default constructor for domain_ext.
+     */
+    domain_ext() {};
+
+    /**
+     * @brief Destructor for domain_ext.
+     */
+    ~domain_ext() {};
+
+    /**
+     * @brief Set the profile.
+     * @param Profile Pointer to the profile.
+     */
+    void set_profile(Profile * Profile) { profiles.push_back(Profile); }
+
+    /**
+     * @brief Perform a step forward or backward in time.
+     * @param tstep Time step.
+     * @param da coefficients.
+     * @param whichPsi Index of the field.
+     */
+    virtual void expiPhi(double tstep, double da, int whichPsi) {
+        double r = ratio_mass[whichPsi];
+        int extrak = world_rank * PointsSS - nghost;
+        #pragma omp parallel for collapse(3)
+        for(size_t i = 0; i < PointsS; i++)
+            for(size_t j = 0; j < PointsS; j++)
+                for(size_t k = nghost; k < PointsSS + nghost; k++) {
+                    double Repsi = psi[2*whichPsi][i][j][k];
+                    double Impsi = psi[2*whichPsi+1][i][j][k];
+                    int Dx = PointsS / 2 - (int)i; if(abs(Dx) > PointsS / 2) { Dx = abs(Dx) - (int)PointsS; }
+                    int Dy = PointsS / 2 - (int)j; if(abs(Dy) > PointsS / 2) { Dy = abs(Dy) - (int)PointsS; }
+                    int Dz = PointsS / 2 - (int)k - extrak; if(abs(Dz) > PointsS / 2) { Dz = abs(Dz) - (int)PointsS; }
+                    double distance = pow(Dx*Dx + Dy*Dy + Dz*Dz, 0.5) * deltaX;
+                    double potential = 0;
+                    for(int p = 0; p < profiles.size(); p++) {
+                        potential += profiles[p]->potential(distance);
+                    }
+                    potential += Phi[i][j][k - nghost];
+                    psi[2*whichPsi][i][j][k] = cos(-tstep * da * r * potential) * Repsi - sin(-tstep * da * r * potential) * Impsi;
+                    psi[2*whichPsi+1][i][j][k] = sin(-tstep * da * r * potential) * Repsi + cos(-tstep * da * r * potential) * Impsi;
+                }
+        #pragma omp barrier
+    }
+
+    /**
+     * @brief Export values to a file.
+     */
+    virtual void exportValues() {
+        if(world_rank == 0) {
+            runinfo.open(outputname + "runinfo.txt");
+            runinfo.setf(ios_base::fixed);
+            runinfo << tcurrent << " " << E_tot_initial << " " << Length << " " << numsteps << " " << PointsS << " "
+                    << numoutputs << " " << numoutputs_profile;
+            for(int j = 0; j < profiles.size(); j++) {
+                for(int i = 0; i < profiles[j]->params.size(); i++) {
+                    runinfo << " " << profiles[j]->params[i];
+                }
+            }
+            for(int i = 0; i < nfields; i++) {
+                runinfo << " " << ratio_mass[i];
+            }
+            runinfo << endl;
+            runinfo.close();
         }
-        potential = potential + Phi[i][j][k-nghost];
+    }
 
-        psi[2*whichPsi][i][j][k]=cos(-tstep*da*r*potential)*Repsi - sin(-tstep*da*r*potential)*Impsi;   //real part
-        psi[2*whichPsi+1][i][j][k]=sin(-tstep*da*r*potential)*Repsi + cos(-tstep*da*r*potential)*Impsi;   //im part
-  }
-  #pragma omp barrier
-}
-virtual void exportValues(){
-  if(world_rank==0){
-    runinfo.open(outputname+"runinfo.txt");
-    runinfo.setf(ios_base::fixed);
-    // runinfo<<"{"<<Length<<","<<tf<<","<<PointsS<<","<<numoutputs<<","<<numoutputs_profile<<"," << Rs << "," << normalization << "}"<<endl;
-    runinfo<<tcurrent<<" "<<E_tot_initial<<" "<< Length<<" "<<numsteps<<" "<<PointsS<<" "
-      <<numoutputs<<" "<<numoutputs_profile;
-    for(int j=0; j<profiles.size(); j++){
-      for (int i=0; i<profiles[j]->params.size(); i++) // Fill with the values of the parameters for the profile
-        runinfo<<" "<<profiles[j]->params[i];
+    /**
+     * @brief Compute the potential energy density at a grid point, including the external potential.
+     * @param i Index in the x-dimension.
+     * @param j Index in the y-dimension.
+     * @param k Index in the z-dimension.
+     * @param whichPsi Index of the field.
+     * @return Potential energy density at the grid point.
+     */
+    virtual double energy_pot(const int & i, const int & j, const int & k, int whichPsi) {
+        double r = ratio_mass[whichPsi];
+        int extrak = world_rank * PointsSS - nghost;
+        int Dx = PointsS / 2 - (int)i; if(abs(Dx) > PointsS / 2) { Dx = abs(Dx) - (int)PointsS; }
+        int Dy = PointsS / 2 - (int)j; if(abs(Dy) > PointsS / 2) { Dy = abs(Dy) - (int)PointsS; }
+        int Dz = PointsS / 2 - (int)k - extrak; if(abs(Dz) > PointsS / 2) { Dz = abs(Dz) - (int)PointsS; }
+        double distance = pow(Dx*Dx + Dy*Dy + Dz*Dz, 0.5) * deltaX;
+        double ext_pot = 0;
+        for(int p = 0; p < profiles.size(); p++) {
+            ext_pot += profiles[p]->potential(distance);
+        }
+        return (pow(psi[2*whichPsi][i][j][k], 2) + pow(psi[2*whichPsi+1][i][j][k], 2)) * (0.5 * Phi[i][j][k - nghost] + ext_pot);
     }
-    for(int i=0; i<nfields; i++)
-    {
-      runinfo<<" "<< ratio_mass[i];
-    }
-    runinfo<<endl;
-    runinfo.close();
-  }
-}
-virtual double energy_pot(const int & i, const int & j, const int & k, int whichPsi){// it computes the potential energy density at grid point (i,j,k), adding the external potrential contribution
-  double r = ratio_mass[whichPsi];
-  int extrak = world_rank*PointsSS - nghost;
-  int Dx=PointsS/2 -(int)i; if(abs(Dx)>PointsS/2){Dx=abs(Dx)-(int)PointsS;} // workaround which takes into account the periodic boundary conditions
-  int Dy=PointsS/2 -(int)j; if(abs(Dy)>PointsS/2){Dy=abs(Dy)-(int)PointsS;} // periodic boundary conditions!
-  int Dz=PointsS/2 -(int)k -extrak; if(abs(Dz)>PointsS/2){Dz=abs(Dz)-(int)PointsS;} // periodic boundary conditions!
-  double distance=pow(Dx*Dx+Dy*Dy+Dz*Dz, 0.5) * deltaX;
-  double ext_pot = 0;
-  for(int p=0; p<profiles.size();p++){
-    ext_pot = ext_pot + profiles[p]->potential(distance);
-  }
-  return (pow(psi[2*whichPsi][i][j][k],2) + pow(psi[2*whichPsi+1][i][j][k],2))*(0.5*Phi[i][j][k-nghost] + ext_pot);
-}
+};
 
         // virtual multi_array<double,2> profile_density(double density_max){ // It computes the averaged density and energy as function of distance from soliton
         //                                                                    // It computes the averages from the center of the grid
@@ -129,6 +168,5 @@ virtual double energy_pot(const int & i, const int & j, const int & k, int which
         //     }
         //     return binned;
         // }
-};
 #endif
 

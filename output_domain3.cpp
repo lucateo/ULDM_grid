@@ -19,13 +19,6 @@ void domain3::openfiles(){ // It opens all the output files, and it inserts an i
       spectrum_energy.setf(ios_base::fixed);
     }   
   }
-  // This you have to open on all nodes, if mpi_bool==true, append the world_rank to the file name
-  // if(mpi_bool==true){
-  //   profile_sliced.open(outputname+"profile_sliced_node"+to_string(world_rank)+".txt");profile_sliced<<"{"; profile_sliced.setf(ios_base::fixed);
-  // }
-  // else {
-  //   profile_sliced.open(outputname+"profile_sliced.txt");profile_sliced<<"{"; profile_sliced.setf(ios_base::fixed);
-  // }
 }
 
 void domain3::openfiles_backup(){ //It opens all the output files in append mode, with no initial insertion of { (for backup mode)
@@ -40,13 +33,6 @@ void domain3::openfiles_backup(){ //It opens all the output files in append mode
       spectrum_energy.setf(ios_base::fixed);
     }   
   }
-  // This you have to open on all nodes, if mpi_bool==true, append the world_rank to the file name
-  // if(mpi_bool==true){
-  //   profile_sliced.open(outputname+"profile_sliced_node"+to_string(world_rank)+".txt", ios_base::app);profile_sliced.setf(ios_base::fixed);
-  // }
-  // else {
-  //   profile_sliced.open(outputname+"profile_sliced.txt", ios_base::app);profile_sliced.setf(ios_base::fixed);
-  // }
 }
 
 // Considering I am implementing the possbility to use backups, this function closes files

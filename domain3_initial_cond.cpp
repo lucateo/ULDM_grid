@@ -504,6 +504,13 @@ void domain3::setEddington(Eddington *eddington, int numpoints, double radmin, d
       for(int i=0; i< psiarr.size(); i++){
         cout<< psiarr[i] << "\t"<<fe_arr[i] << endl;
       }
+      // // Write psiarr and fe_arr to a CSV file
+      // ofstream csvfile("eddington_data.csv");
+      // csvfile << "E values,f(E)\n"; // Write the header
+      // for(int i = 0; i < psiarr.size()-2; i++){
+      //   csvfile << psiarr[i] << "," << fe_arr[i] << "\n";
+      // }
+      // csvfile.close();
     }
   }
   srand(time(NULL)); // Initialize the random seed for random phases
@@ -526,12 +533,14 @@ void domain3::setEddington(Eddington *eddington, int numpoints, double radmin, d
   
   if (world_rank==0){
     if (first_initial_cond == true){ 
+      cout<<"Opening file for Eddington initial conditions"<<endl;
       info_initial_cond.open(outputname+"initial_cond_info.txt");
       first_initial_cond = false;
     }
     else info_initial_cond.open(outputname+"initial_cond_info.txt", ios_base::app);
     info_initial_cond.setf(ios_base::fixed); 
     for (int id_prof=0; id_prof< eddington->profile_pot_size(); id_prof++){
+      cout<<"Writing profile "<< eddington->get_profile_pot(id_prof)->name_profile<<endl;
       info_initial_cond<<eddington->get_profile_pot(id_prof)->name_profile;
       for(int i = 0; i < eddington->get_profile_pot(id_prof)->params.size(); i++){
         info_initial_cond<<" "<<eddington->get_profile_pot(id_prof)->params_name[i]<<" "
@@ -674,4 +683,40 @@ void domain3::setEddington(Eddington *eddington, int numpoints, double radmin, d
   }
   #pragma omp barrier
   cout<<"Computation time to initialize the field "<< time(NULL) - time_comp_initial << endl;
+}
+
+// Outputs initial condition information to the file, useful when the information
+// from set_Eddington is cancelled (e.g. when you start the D3 solver in delayed NFW in stars)
+void domain3::output_Eddington_initial_cond(Eddington *eddington, int numpoints, double radmin, double radmax, int fieldid, 
+  double ratiomass, int num_k, bool simplify_k, int center_x, int center_y,int center_z){
+  if (world_rank==0){
+    if (first_initial_cond == true){ 
+      info_initial_cond.open(outputname+"initial_cond_info.txt");
+      first_initial_cond = false;
+    }
+    else info_initial_cond.open(outputname+"initial_cond_info.txt", ios_base::app);
+    info_initial_cond.setf(ios_base::fixed); 
+    for (int id_prof=0; id_prof< eddington->profile_pot_size(); id_prof++){
+      info_initial_cond<<eddington->get_profile_pot(id_prof)->name_profile;
+      for(int i = 0; i < eddington->get_profile_pot(id_prof)->params.size(); i++){
+        info_initial_cond<<" "<<eddington->get_profile_pot(id_prof)->params_name[i]<<" "
+          <<eddington->get_profile_pot(id_prof)->params[i] << " ";
+      }
+    } 
+    info_initial_cond<<"ratio_mass "<< ratiomass << " " << num_k << " " <<simplify_k << " " << center_x
+        << " " << center_y << " " << center_z;
+    
+    //If the density profile does not fully source the potential, print information about it as well
+    if(eddington->same_profile_den_pot==false){
+      for (int id_prof=0; id_prof< eddington->profile_den_size(); id_prof++){
+        info_initial_cond<<" " << eddington->get_profile_den(id_prof)->name_profile <<"__density";
+      for(int i = 0; i < eddington->get_profile_den(id_prof)->params.size(); i++){
+        info_initial_cond<<" "<<eddington->get_profile_den(id_prof)->params_name[i]
+          <<" "<<eddington->get_profile_den(id_prof)->params[i];
+      } 
+    }
+    info_initial_cond<<endl;
+    info_initial_cond.close();
+      }  
+  }
 }
