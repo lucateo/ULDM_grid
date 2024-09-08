@@ -96,10 +96,12 @@ void domain3::outputfullPsi(ofstream& fileout, bool backup, int reduce_grid){// 
     if(mpi_bool==true){//if mpi_bool==true, append the world_rank to the file name
       fileout.open(outputname+"psi_snapshot_"+to_string(snapshotcount)+"_wr_"+to_string(world_rank)+".txt"); 
       fileout.setf(ios_base::fixed);
+      snapshotcount++;
     }
     else {
       fileout.open(outputname+"psi_snapshot_"+to_string(snapshotcount)+".txt"); 
       fileout.setf(ios_base::fixed);
+      snapshotcount++;
     }
   }
   print4_cpp(psi,fileout,nghost, reduce_grid);
@@ -282,7 +284,6 @@ void domain3::snapshot(double stepCurrent){//Outputs the full density profile; i
   else if(Grid3D == true){
     ofstream grid;
     outputfullPsi(grid, false,reduce_grid_param);
-    snapshotcount++;
   }
   if(world_rank==maxNode || mpi_bool==false){
     if(phaseGrid == true){

@@ -453,7 +453,7 @@ void domain3::set_initial_from_file(string filename_in, string filename_vel){
         }
 }
 
-void domain3::set_static_profile(Profile *profile, int whichF){
+void domain3::set_static_profile(Profile *profile, int whichF, vector<double> vcm){
   // Sets the initial condition to be a static profile, for the various fields
   if(world_rank==0){
     if (first_initial_cond == true){ 
@@ -477,10 +477,15 @@ void domain3::set_static_profile(Profile *profile, int whichF){
       for(int k=nghost; k<PointsSS+nghost;k++){
         double rad = deltaX * sqrt( pow( i - center,2)+ pow( j - center,2) 
           + pow( k +extrak - center,2));
+        double phase = deltaX * (vcm[0] * i + vcm[1] * j + vcm[2] * (k+extrak));
+        double sqrt_density = 0; 
+        if (rad==0)
         // Avoid division by zero
-        if (rad==0) {psi[2*whichF][i][j][k] += sqrt( profile->density(deltaX/10) );}
+          sqrt_density = sqrt( profile->density(deltaX/10) );
         else
-          psi[2*whichF][i][j][k] += sqrt( profile->density(rad) );
+          sqrt_density = sqrt( profile->density(rad) );
+        psi[2*whichF][i][j][k] += sqrt_density * cos(phase);
+        psi[2*whichF+1][i][j][k] += sqrt_density * sin(phase);
       }
     }
   }

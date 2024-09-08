@@ -601,11 +601,13 @@ int main(int argc, char** argv){
       
       D3.set_output_name(outputname);
       D3.set_ratio_masses(ratio_mass);
+      // Set velocity of center of mass to zero
+      vector<double> vcm = {0,0,0};
       NFW *nfw_profile = new NFW(rs, rhos, Length, true);// The actual max radius is between Length and Length/2
       if(start_from_backup=="true")
         D3.initial_cond_from_backup();
       else
-        D3.set_static_profile(nfw_profile,0);
+        D3.set_static_profile(nfw_profile,0, vcm);
     }
     else{
       run_ok=false; 

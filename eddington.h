@@ -209,6 +209,130 @@ class NFW: public Profile {
     }
 };
 
+
+
+/**
+ * @brief Class for Burkert profile.
+ */
+class Burkert: public Profile {
+  protected:
+    double Rs; ///< Scale radius.
+    double Rhos; ///< Characteristic density.
+    double Rmax; ///< Maximum radius.
+    bool dimensionless_units = false; ///< If true, use dimensionless units (G -> 1/(4π)).
+    double G_eff = G_ASTRO; ///< Effective gravitational constant.
+
+  public:
+    /**
+     * @brief Constructor for NFW profile.
+     * @param rs Scale radius.
+     * @param rhos Characteristic density.
+     * @param rmax Maximum radius.
+     * @param dimless_bool If true, use dimensionless units.
+     */
+    Burkert(double rs, double rhos, double rmax, bool dimless_bool): Profile{}, Rs(rs), Rhos(rhos), Rmax(rmax), dimensionless_units(dimless_bool) {
+        analytic_Eddington = false;
+        name_profile = "Burkert";
+        params.push_back(rs); params.push_back(rhos); params.push_back(rmax);
+        params_name.push_back("R0"); params_name.push_back("rho0"); params_name.push_back("Rmax");
+        if(dimensionless_units == true) G_eff = 1 /(4*M_PI);
+    };
+
+    Burkert() {};
+    ~Burkert() {};
+
+    /**
+     * @brief Calculate the potential at a given radius.
+     * @param r Radius.
+     * @return Potential at radius r.
+     */
+    double potential(double r) {
+      double xr = r / Rs;
+      double result = -1./4*Rhos*pow(Rs,2)*(M_PI - 2*atan(xr) + log( pow(xr+1,2)/(xr*xr+1) ) );
+      return result - mass_rmax(r) / (4*M_PI*r);
+    }
+
+    /**
+     * @brief Calculate the density at a given radius.
+     * @param r Radius.
+     * @return Density at radius r.
+     */
+    double density(double r) {
+      double result = Rhos *pow(Rs,3) / ((r + Rs)* ( r * r + Rs * Rs));
+      return result;
+    }
+
+    /**
+     * @brief Calculate the surface density at a given radius.
+     * @param r Radius.
+     * @return Surface density at radius r.
+     */
+    double surface_density(double r) {
+      double xr = r / Rs;
+      double result = 0;
+      if (xr == 1) xr = 1.000000001; // Avoid division by zero
+      if (xr > 1){
+        double prefactor = Rhos * Rs / (2*sqrt( pow(xr,4) - 1));
+        result = prefactor * (sqrt(xr*xr-1) *(M_PI + 2*atanh(1/(sqrt(xr*xr+1)))) - 2* sqrt(xr * xr + 1) * atan(sqrt(xr * xr - 1)));
+      }
+      else if (xr < 1){
+        double prefactor = Rhos * Rs / (2*sqrt(1- pow(xr,2) )*(xr*xr+1));
+        result = prefactor * ( -2*(xr*xr+1) *atanh(sqrt(1-xr*xr)) 
+          + (2+M_PI)* sqrt(1-pow(xr,4)) * atanh(1/sqrt(xr * xr + 1)));
+      }
+      return result;
+    }
+
+    /**
+     * @brief Calculate the potential Psi at a given radius.
+     * @param r Radius.
+     * @return Psi at radius r.
+     */
+    double Psi(double r) {
+      return -potential(r) + potential(Rmax);
+    }
+
+    /**
+     * @brief Calculate the mass within a given radius.
+     * @param rmax Maximum radius.
+     * @return Mass within radius rmax.
+     */
+    double mass_rmax(double rmax) {
+      double x = rmax / Rs;
+      return M_PI * Rhos * pow(Rs, 3) * (log((x*x+1)*pow(x+1,2)) - 2*atan(x)) ;
+    }
+
+    /**
+     * @brief Calculate the analytic small radius.
+     * @param psi Potential.
+     * @return Analytic small radius.
+     */
+    double analytic_small_radius(double psi) {
+      return -1; // No analytic
+    }
+
+    /**
+     * @brief Calculate the second derivative of density with respect to potential.
+     * @param psi Potential.
+     * @return Second derivative of density with respect to potential.
+     */
+    double analytic_d2rho_dpsi(double psi) {
+      return -1; // No analytic
+    }
+
+    /**
+     * @brief Calculate the distribution function f(E).
+     * @param psi Potential.
+     * @return Distribution function f(E).
+     */
+    double analytic_fE(double psi) {
+      return -1; // No analytic
+    }
+};
+
+
+
+
 /**
  * @brief Class for Plummer profile.
  */
@@ -821,6 +945,9 @@ class Eddington {
         result = profiles_potential[0]->analytic_fE(E);
       } else if (E <= psi_arr[Nx - 1] && E >= psi_arr[0]) {
         result = interpolant(E, psi_arr, FE_arr);
+        // When potential and energy profile are incompatible, it can happen
+        // that f(E) is negative. In this case, set it to zero.
+        if (result < 0) result = 0;
       } else { // If it is greater than the maximum, error
         result = -1;
       }

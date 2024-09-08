@@ -304,7 +304,9 @@ int main(int argc, char** argv){
         NFW *profile_nfw = new NFW(rs, rhos, Length, true);// The actual max radius is between Length and Length/2
         // For stars, there is no meaning to put Length as rmax
         // setEddington computes fE_func, so you should run it before
-        D3.set_static_profile(profile_nfw,0);
+        // Set a vcm for testing purposes
+        vector<double> vcm = {0.05, 0.01, -0.03};
+        D3.set_static_profile(profile_nfw,0, vcm);
         D3.set_output_name(outputname);
         D3.set_ratio_masses(ratio_mass);
         // Then generate stars
@@ -324,8 +326,8 @@ int main(int argc, char** argv){
           vector<double> v_cm;
           for (int i=0; i<3; i++){
             xmax.push_back(Length/2);
-            // v_cm.push_back(D3.v_center_mass(i,0));
-            v_cm.push_back(0);
+            v_cm.push_back(D3.v_center_mass(i,0));
+            // v_cm.push_back(0);
           }
           multi_array<double,2> stars_arr = D3.generate_stars(&eddington_stars,
             Length/Nx, Length/3, xmax, v_cm);
@@ -456,6 +458,11 @@ int main(int argc, char** argv){
         // setEddington computes fE_func, so you should run it before
         D3.setEddington(&eddington_nfw, 500, Length/Nx, Length, 0, ratio_mass[0], num_k, boolk,
             int(Nx/2),int(Nx/2),int(Nx/2) ); // The actual max radius is between Length and Length/2
+        // Print the full initial snapshot, it prints in a snapshot file and not
+        // in the backup file
+        ofstream psi_snapshot;
+        D3.outputfullPsi(psi_snapshot,false,1);
+        
         D3.put_numstar_eff(0);
         // Run until relaxing time
         D3.solveConvDif();
@@ -466,7 +473,7 @@ int main(int argc, char** argv){
           Eddington eddington_stars = Eddington(false);
           Plummer *profile_plummer = new Plummer(r_plummer, M_plummer, Length/3, true);
           // Compute the actual density profile
-          multi_array<double, 2> density_profile = D3.profile_density(0);
+          multi_array<double,2> density_profile = D3.profile_density(0);
           vector<double> radius_profile;
           vector<double> density_profile_vec;
           for(int i=0; i<density_profile.shape()[1]; i++){
@@ -474,12 +481,13 @@ int main(int argc, char** argv){
             density_profile_vec.push_back(density_profile[1][i]);
             // cout<<radius_profile[i]<<" "<<density_profile_vec[i]<<endl;
           }
-          Generic *profile_ext_stars = new Generic(density_profile_vec,radius_profile, Length/3, true);
+          // Generic profile has still issues from usual non-monotonous density profiles
+          // Generic *profile_ext_stars = new Generic(density_profile_vec,radius_profile, Length/3, true);
           // If you define a different max length, you should define a new Profile 
           // with that max length
-          // NFW *profile_nfw_stars = new NFW(rs, rhos, Length/3, true);
+          NFW *profile_nfw_stars = new NFW(rs, rhos, Length/3, true);
           eddington_stars.set_profile_den(profile_plummer);
-          eddington_stars.set_profile_pot(profile_ext_stars);
+          eddington_stars.set_profile_pot(profile_nfw_stars);
           // Stars gravity is not taken into account, so the potential 
           // should be just nfw
           // eddington_stars.set_profile_pot(profile_plummer);
@@ -507,6 +515,90 @@ int main(int argc, char** argv){
         cout<<"You need 6 arguments to pass to the code: rs, rhos, r_plummer, M_plummer, num_k, numstep_relax" << endl;
     }
   }
+
+
+  // Set an initial Burkert halo, let it relax, then put stars
+  else if (initial_cond == "halo_stars_delayed_Burkert" ) {
+    if (params_initial_cond.size() > 5){
+      outputname= directory_name+"halo_stars_Burkert"+outputname;
+      // Burkert parameters
+      double r0 = stod(params_initial_cond[0]);
+      double rho0= stod(params_initial_cond[1]);
+      // Plummer parameters
+      double r_plummer = stod(params_initial_cond[2]);
+      double M_plummer= stod(params_initial_cond[3]);
+      int num_k = stoi(params_initial_cond[4]); // Number of maximum k points in nested loop
+      int numstep_relax = stoi(params_initial_cond[5]); // Number of steps to relax the halo
+      bool boolk = false; // simplify k sum always false
+      outputname = outputname+"r0_"+to_string(r0)+"_rho0_"+to_string(rho0)+
+          "_r_plummer_"+to_string(r_plummer)+"_M_plummer_"+to_string(M_plummer)+
+          "_num_stars_"+to_string(num_stars)+"_";
+      
+      D3.set_output_name(outputname);
+      D3.set_ratio_masses(ratio_mass);
+      
+      if(start_from_backup=="true"){
+        D3.initial_cond_from_backup();
+        D3.get_star_backup();
+      }
+      else{
+        // Sets the number of steps to relax the halo
+        D3.set_numsteps(numstep_relax);
+        Burkert *profile_burk = new Burkert(r0, rho0, Length, true);// The actual max radius is between Length and Length/2
+        // For stars, there is no meaning to put Length as rmax
+        Eddington eddington_burk = Eddington(true);
+        eddington_burk.set_profile_den(profile_burk);
+        eddington_burk.set_profile_pot(profile_burk);
+        // setEddington computes fE_func, so you should run it before
+        D3.setEddington(&eddington_burk, 500, Length/Nx, Length, 0, ratio_mass[0], num_k, boolk,
+            int(Nx/2),int(Nx/2),int(Nx/2) ); // The actual max radius is between Length and Length/2
+        
+        // Print the full initial snapshot, it prints in a snapshot file and not
+        // in the backup file
+        ofstream psi_snapshot;
+        D3.outputfullPsi(psi_snapshot,false,1);
+        
+        D3.put_numstar_eff(0);
+        // Run until relaxing time
+        D3.solveConvDif();
+        D3.set_numsteps(numsteps);
+        D3.put_numstar_eff(num_stars);
+        // Then generate stars
+        if(world_rank==0){
+          Eddington eddington_stars = Eddington(false);
+          Plummer *profile_plummer = new Plummer(r_plummer, M_plummer, Length/3, true);
+          // If you define a different max length, you should define a new Profile 
+          // with that max length
+          Burkert *profile_burk_stars = new Burkert(r0, rho0, Length/3, true);
+          eddington_stars.set_profile_den(profile_plummer);
+          eddington_stars.set_profile_pot(profile_burk_stars);
+          // Stars gravity is not taken into account, so the potential 
+          // should be just burkert
+          eddington_stars.generate_fE_arr(500, Length/Nx, Length/3);
+          vector<double> xmax;
+          vector<double> v_cm;
+          for (int i=0; i<3; i++){
+            xmax.push_back(D3.get_maxx(0,i)*Length/Nx);
+            v_cm.push_back(D3.v_center_mass(i,0));
+            // v_cm.push_back(0);
+          }
+          multi_array<double,2> stars_arr = D3.generate_stars(&eddington_stars,
+            Length/Nx, Length/3, xmax, v_cm);
+          D3.put_initial_stars(stars_arr);
+          // World rank 0 creates the star backup, then all the other ranks will take from this backup
+          D3.out_star_backup();
+        }
+        D3.get_star_backup();
+      }
+      // After, if start_from_backup is false, it will not save the relaxing of halo part
+    }
+    else{
+      run_ok=false; 
+      if (world_rank==0)
+        cout<<"You need 6 arguments to pass to the code: r0, rho0, r_plummer, M_plummer, num_k, numstep_relax" << endl;
+    }
+  }
+
 
   // Set an initial halo, let it relax, then put stars in a disk
   else if (initial_cond == "halo_stars_disk" ) {
@@ -583,7 +675,8 @@ int main(int argc, char** argv){
     run_ok=false; 
     if (world_rank==0){
       cout<< "String in 8th position does not match any possible initial conditions; possible initial conditions are:" << endl;
-      cout<< "NFW, NFW_ext_Eddington, NFW_solitons"<<endl;;
+      cout<< "NFW, NFW_ext_Eddington, NFW_solitons, halo_stars_delayed_NFW, halo_stars_disk"<<endl;
+      cout<< "uniform_NFW_test, halo_stars_delayed_Burkert " << endl;
     }
   }
 

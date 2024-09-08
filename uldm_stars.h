@@ -192,6 +192,7 @@ class domain_stars: public domain3
       multi_array<double,3> fii(extents[2][2][2]);
       multi_array<double,1> gradPhi(extents[3]);
       int k0_cell = PointsSS*world_rank - nghost;
+      // #pragma omp parallel for collapse(1)
       for (int s = 0; s <num_stars_eff; s++){
         double x = stars[s][1]+ 0.5*dt*stars[s][4];
         double y = stars[s][2]+ 0.5*dt*stars[s][5];
@@ -232,6 +233,7 @@ class domain_stars: public domain3
         stars[s][2] = cyc_double(x_compute[1] + dt*stars[s][5]/2, Length);
         stars[s][3] = cyc_double(x_compute[2] + dt*stars[s][6]/2, Length);
       }
+      // #pragma omp barrier
     }
 
   /**
@@ -389,7 +391,7 @@ class domain_stars: public domain3
       }
       cumulative_x.push_back( cumulative_x[i] + bin*4*M_PI/eddington->profiles_massMax(rmax));
     }
-    #pragma omp parallel for collapse(1)
+    // #pragma omp parallel for collapse(1)
     for(int i=0; i<num_stars_eff; i++){
       double rand = fRand(0,1);
       double x_rand = interpolant(rand, cumulative_x, r_arr);
@@ -419,6 +421,10 @@ class domain_stars: public domain3
         }
         cumulative_v.push_back(cumulative_v[i] + bin*4*M_PI/eddington->profile_density(x_rand));
       }
+      // cout<< "Show v cumulative"<<endl;
+      // for(int ishow=0;ishow<cumulative_v.size();ishow++)
+      //   cout<< v_arr[ishow] << " " <<cumulative_v[ishow]<<endl;
+      // sleep(2);
       double rand2 = fRand(0,1);
       double v_rand = interpolant(rand2, cumulative_v, v_arr);
       double star[6];
@@ -438,7 +444,7 @@ class domain_stars: public domain3
         stars_arr[i][k] = v_rand*star[k-1]/mod_v + vel_cm[k-4];
       }
     }
-    #pragma omp barrier
+    // #pragma omp barrier
     return stars_arr;
   }
 
@@ -525,14 +531,15 @@ class domain_stars: public domain3
     open_filestars();
 
     int stepCurrent=0;
+    // Compute Phi so that I have the initial potential energy
+    // I am not taking Phi from backup anymore, I am computing it from psi now
+    fgrid.inputPhi(psi,nghost,nfields);                                     //inputs |psi^2|
+    fgrid.calculateFT();                                              //calculates its FT, FT(|psi^2|)
+    fgrid.kfactorPhi(Length);                                         //calculates -1/k^2 FT(|psi^2|)
+    fgrid.calculateIFT();                                             //calculates the inverse FT
+    fgrid.transferPhi(Phi,1./pow(PointsS,3));                     //transfers the result into the xytzgrid Phi and multiplies it by 1/PS^3
     if (start_from_backup == false){
       tcurrent = 0.0;
-      // Compute Phi so that I have the initial potential energy
-      fgrid.inputPhi(psi,nghost,nfields);                                     //inputs |psi^2|
-      fgrid.calculateFT();                                              //calculates its FT, FT(|psi^2|)
-      fgrid.kfactorPhi(Length);                                         //calculates -1/k^2 FT(|psi^2|)
-      fgrid.calculateIFT();                                             //calculates the inverse FT
-      fgrid.transferPhi(Phi,1./pow(PointsS,3));                     //transfers the result into the xytzgrid Phi and multiplies it by 1/PS^3
       snapshot(stepCurrent); // I want the snapshot of the initial conditions
       snapshot_profile(stepCurrent);
       exportValues(); // for backup purposes
@@ -540,7 +547,6 @@ class domain_stars: public domain3
       outputfullPsi(psi_final,true,1);
       output_stars(); 
       // First step, I need its total energy (for adaptive time step, the Energy at 0 does not have the potential energy
-      // (Phi is not computed yet), so store the initial energy after one step
       if(world_rank==0){
         cout<<"current time = "<< tcurrent << " step " << stepCurrent << " / " << numsteps<<" dt "<<dt<<endl;
         cout<<"elapsed computing time (s) = "<< time(NULL)-beginning<<endl;

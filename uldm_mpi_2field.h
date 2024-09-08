@@ -248,10 +248,9 @@ void inline print2(multi_array<double, 2> &v1, ofstream &filename) {
     filename << "}";
     // Add a comma if not the last element in the first dimension
     if (i != (Nx - 1)) { filename << ","; }
-    // Array in the first dimension is not closed, to allow for more elements
-    // (e.g. if one one to build a 3D array where the first dimension is the time
-    // snapshots and the last two are the grid points)
   }
+  // Close the array in the first dimension
+  filename << "}";
 }
 
 
@@ -292,7 +291,7 @@ void inline print3(multi_array<double, 3> &v1, ofstream &filename) {
         }
     }
     // Close the array in the first dimension
-    filename << " } ";
+    filename << "}";
 }
 
 /**
@@ -1208,8 +1207,9 @@ public:
      * 
      * @param profile The profile object.
      * @param whichF Indicates which field.
+     * @param vcm The center of mass velocity.
      */
-    void set_static_profile(Profile *profile, int whichF);
+    void set_static_profile(Profile *profile, int whichF, vector<double> vcm);
 
     /**
      * @brief Set Eddington initial conditions.

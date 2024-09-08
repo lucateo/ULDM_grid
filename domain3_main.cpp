@@ -346,6 +346,14 @@ void domain3::solveConvDif(){
   else
     openfiles();
   int stepCurrent=0;
+  // Compute Phi so that I have the initial potential energy
+  // I am not taking Phi from backup anymore, I am computing it from psi now
+  fgrid.inputPhi(psi,nghost,nfields);                                     //inputs |psi^2|
+  fgrid.calculateFT();                                              //calculates its FT, FT(|psi^2|)
+  fgrid.kfactorPhi(Length);                                         //calculates -1/k^2 FT(|psi^2|)
+  fgrid.calculateIFT();                                             //calculates the inverse FT
+  fgrid.transferPhi(Phi,1./pow(PointsS,3));                     //transfers the result into the xytzgrid Phi and multiplies it by 1/PS^3
+  
   double t_spectrum;
   vector<vector<double>> spectrum_vector;
   if (world_rank==0) cout<< "File name of the run " << outputname << endl;
