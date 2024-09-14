@@ -786,9 +786,9 @@ class Eddington {
     }
 
     /**
-     * @brief Calculate the total potential at a given radius.
+     * @brief Calculate the total Psi potential at a given radius.
      * @param radius Radius.
-     * @return Total potential at the given radius.
+     * @return Total Psi potential at the given radius.
      */
     double psi_potential(double radius) {
       double psi = 0;
@@ -796,6 +796,20 @@ class Eddington {
         psi += profiles_potential[i]->Psi(radius);
       }
       return psi;
+    }
+    
+    
+    /**
+     * @brief Calculate the total potential at a given radius.
+     * @param radius Radius.
+     * @return Total potential at the given radius, without subtracting for Phi(r_max).
+     */
+    double phi_potential(double radius) {
+      double phi = 0;
+      for (int i = 0; i < profiles_potential.size(); i++) {
+        phi += profiles_potential[i]->potential(radius);
+      }
+      return phi;
     }
 
     /**
@@ -943,13 +957,20 @@ class Eddington {
       // Use analytic results only if I am dealing with a single profile, and if the potential is entirely sourced by the target density
       if ((analytic_Edd[0] == true && same_profile_den_pot == true) && analytic_Edd.size() == 1) {
         result = profiles_potential[0]->analytic_fE(E);
-      } else if (E <= psi_arr[Nx - 1] && E >= psi_arr[0]) {
+      } 
+      else if (E <= psi_arr[Nx - 1] && E >= psi_arr[0]) {
         result = interpolant(E, psi_arr, FE_arr);
         // When potential and energy profile are incompatible, it can happen
         // that f(E) is negative. In this case, set it to zero.
         if (result < 0) result = 0;
-      } else { // If it is greater than the maximum, error
-        result = -1;
+      } 
+      else if (E<0) { // If it is negative, set it to zero and raise warning
+        cout << "Warning: E="<< E <<" is negative, setting f(E) to zero" << endl;
+        result = 0;
+      }
+      else { // If it is greater than the maximum, error
+        cout << "Warning: E="<< E <<" is greater than maximum!" << endl;
+        result = interpolant(E, psi_arr, FE_arr);
       }
       return result;
     }

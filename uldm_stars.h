@@ -348,6 +348,38 @@ class domain_stars: public domain3
     }
   }
 
+/**
+ * @brief Generates an array of random stars with positions and velocities.
+ * 
+ * This function generates a multi-dimensional array of stars, where each star has a mass,
+ * position (x, y, z), and velocity (vx, vy, vz). The positions are randomly generated within
+ * the range [0, Length], and the velocities are randomly generated within the range [-vel_max, vel_max].
+ * 
+ * @param vel_max The maximum absolute value for the velocity components.
+ * @return A multi-dimensional array of stars, where each row represents a star and contains
+ *         the following columns:
+ *         - Mass (fixed at 1)
+ *         - Position x
+ *         - Position y
+ *         - Position z
+ *         - Velocity vx
+ *         - Velocity vy
+ *         - Velocity vz
+ */
+multi_array<double,2> generate_random_stars(double vel_max){
+  multi_array<double,2> stars_arr(extents[num_stars_eff][8]);
+  for(int i=0; i<num_stars_eff; i++){
+    stars_arr[i][0] = 1; // Mass
+    for(int j=1; j<4; j++){
+      stars_arr[i][j] = fRand(0,Length );
+    }
+    for(int j=4; j<7; j++){
+      stars_arr[i][j] = fRand(-vel_max,vel_max);
+    }
+  }
+  return stars_arr;
+}
+
   /**
   * @brief Generates stars using the Eddington procedure.
   * 
@@ -371,7 +403,7 @@ class domain_stars: public domain3
     vector<double> cumulative_x; // Cumulative of p(x) array
     int npoints = PointsS;
     int numpoints_int = 50; // Number of points for the integration
-
+    int npoints_vel = 500; // Number of points for the velocity cumulative computation
     r_arr.push_back(0); 
     cumulative_x.push_back(0); 
     rmin = 0.9*rmin; // Ensure that the maximum energy is never surpassed in the actual run
@@ -391,20 +423,24 @@ class domain_stars: public domain3
       }
       cumulative_x.push_back( cumulative_x[i] + bin*4*M_PI/eddington->profiles_massMax(rmax));
     }
+      cout<< "Show x cumulative"<<endl;
+      for(int ishow=0;ishow<cumulative_x.size();ishow++)
+        cout<< r_arr[ishow] << " " <<cumulative_x[ishow]<<endl;
     // #pragma omp parallel for collapse(1)
     for(int i=0; i<num_stars_eff; i++){
       double rand = fRand(0,1);
       double x_rand = interpolant(rand, cumulative_x, r_arr);
       if(x_rand<rmin) x_rand = rmin;
-      if(x_rand == rmax) x_rand = rmax - rmax*1E-8;
+      if(x_rand > rmax) x_rand = rmax - rmax*1E-8;
       vector<double> v_arr; // Interpolating array, random uniform variable
       vector<double> cumulative_v; // Cumulative of p(v|x) array
-      double vmax =0.999999999*sqrt(2*eddington->psi_potential(x_rand));
+      // Avoid to go beyond vmax
+      double vmax =sqrt(2*eddington->psi_potential(x_rand));
       double vmin = 0.001*vmax;
       v_arr.push_back(0); 
       cumulative_v.push_back(0);
-      for(int i=0; i< npoints+1; i++){ 
-        double v = pow(10 ,(log10(vmax) -log10(vmin))/(npoints)* i + log10(vmin));
+      for(int i=0; i< npoints_vel+1; i++){ 
+        double v = pow(10 ,(log10(vmax) -log10(vmin))/(npoints_vel)* i + log10(vmin));
         v_arr.push_back(v);
         double bin = 0;
         double vmin_int;
@@ -421,10 +457,14 @@ class domain_stars: public domain3
         }
         cumulative_v.push_back(cumulative_v[i] + bin*4*M_PI/eddington->profile_density(x_rand));
       }
-      // cout<< "Show v cumulative"<<endl;
-      // for(int ishow=0;ishow<cumulative_v.size();ishow++)
-      //   cout<< v_arr[ishow] << " " <<cumulative_v[ishow]<<endl;
-      // sleep(2);
+      if (cumulative_v.back() < 0.95 || cumulative_v.back() > 1.05){
+        cout<< "Error in the cumulative distribution"<<endl;
+        cout<< "x_rand: "<<scientific<< x_rand << " vmax: "<< vmax << " vmin: "<< vmin << " cumulative_v: "<< cumulative_v.back()<<endl;
+        cout<< "Show v cumulative (final points)"<<endl;
+        for(int ishow=cumulative_v.size()-10;ishow<cumulative_v.size();ishow++)
+          cout<<scientific << v_arr[ishow] << " " <<cumulative_v[ishow]<<endl;
+        sleep(2);
+      }
       double rand2 = fRand(0,1);
       double v_rand = interpolant(rand2, cumulative_v, v_arr);
       double star[6];
@@ -435,16 +475,14 @@ class domain_stars: public domain3
       stars_arr[i][0]=1; // Set the mass to 1
       for (int k=1;k<4;k++){
         double value = x_rand*star[k-1]/mod_x +xmax[k-1];
-        if(value<Length)
-          stars_arr[i][k] = value;
-        else
-          stars_arr[i][k] = value - Length;
+        stars_arr[i][k] = cyc_double(value,Length);
       }
       for (int k=4;k<7;k++){
         stars_arr[i][k] = v_rand*star[k-1]/mod_v + vel_cm[k-4];
       }
     }
     // #pragma omp barrier
+    cout<<fixed;
     return stars_arr;
   }
 

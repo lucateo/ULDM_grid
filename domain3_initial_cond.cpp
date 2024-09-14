@@ -328,6 +328,25 @@ void domain3::set_theta(double Nparts, int whichF){
   }
 }
 
+void domain3::set_Gauss_noise(double A_rand, double l_corr, int whichF){
+  // Sets Gaussian noise in Fourier space initial conditions, A_rand is the amplitude of the noise, 
+  // l_corr is the correlation length 
+  fgrid.input_Gauss_corr(A_rand, l_corr, Length);
+  fgrid.calculateFT();
+  fgrid.transferpsi_add(psi, 1./pow(Length,3),nghost,whichF);
+  if(world_rank==0){
+    if (first_initial_cond == true){ 
+      info_initial_cond.open(outputname+"initial_cond_info.txt");
+      first_initial_cond = false;
+    }
+    else info_initial_cond.open(outputname+"initial_cond_info.txt", ios_base::app);
+    info_initial_cond.setf(ios_base::fixed); 
+    info_initial_cond<<"Gauss_noise_field_"+to_string(whichF); 
+    info_initial_cond<<" "<<A_rand<<" "<< l_corr << " "<< ratio_mass[whichF] << endl;
+    info_initial_cond.close();
+  }
+}
+
 // sets |psi|^2 = norm*Exp(-(x/a_e)^2 - (y/b_e)^2 - (z/c_e)^2), for field whichPsi; 
 // if random is 1, insert gaussian correlation C(x) = A\exp(-x^2/l_corr^2); if random=1, addition this field configuration AFTER
 // anothe initial condition IS NOT SUPPORTED!!! (Yet)
@@ -530,11 +549,7 @@ void domain3::setEddington(Eddington *eddington, int numpoints, double radmin, d
   int num_k_real = min(int(PointsS/2), num_k); // The total number of k should not surpass PointsS/2
   // int num_k_real = num_k; 
   int skip_k = int(ceil(float(kmax_global)/num_k_real)); // Remember to ensure float division!
-  if(world_rank==0) cout<< "skip k " << skip_k << endl;
-  bool klow =false; // if true, it means that the kmax is too low, hence needing to do the sum in a different way to recover the correct target density
-  if (kmax_global <10) {
-    klow =true;
-  }
+  if(world_rank==0) cout<< "skip k global " << skip_k << endl;
   
   if (world_rank==0){
     if (first_initial_cond == true){ 
@@ -628,8 +643,9 @@ void domain3::setEddington(Eddington *eddington, int numpoints, double radmin, d
         double distance = max(Length/PointsS *sqrt( pow(Dx,2) + pow(Dy,2) + pow(Dz,2)), radmin);
         
         // ceil rounds up to nearest integer; this is the "local" maximum k, given Psi(r)
-        // int kmax = min(int(PointsS/2), int(ceil(sqrt(2*profile->Psi(distance)) * Length/(2*M_PI) ) ));
         int kmax = int (ceil(sqrt(2*eddington->psi_potential(distance)) * ratiomass * Length/(2*M_PI) ) );
+        // Local skip_k, to speed up the computation
+        // int skip_k = int(ceil(float(kmax)/num_k_real)); // Remember to ensure float division!
         // Get to the closest, rounded up, k vector allowed by the num_k splitting; it has to be divisible by skip_k
         if(kmax%skip_k != 0) {
           kmax = kmax + skip_k- (kmax % skip_k); 
@@ -644,29 +660,15 @@ void domain3::setEddington(Eddington *eddington, int numpoints, double radmin, d
                 double vx = Length/PointsS*(v1*i + v2*j + v3*(k+extrak)); 
                 double vtilde = 2*M_PI/ratiomass/Length *vv;// taking into account the ratio_mass r, to ensure periodic boundary conditions
                 double E = eddington->psi_potential(distance) - pow(vtilde,2)/2; // You have to ensure E > 0, for bound system
-                // if (klow == true && (kmax==kmax_global && vv ==0)){//do the low k sum on 20 points, exploiting spherical symmetry on kf_here
-                //   double fe = eddington->fE_func(E);
-                //   for (int kl=0; kl < 20; kl++){
-                //     double kf_here = 0.5*(kl+1)/20;
-                //     double psi_point = pow(2*M_PI/Length/ratiomass,3./2)*(0.5/20)*(4*M_PI*kf_here*kf_here)*sqrt(fe);
-                //     size_t index = size_t( size_t(v1/skip_k)+num_k_real) 
-                //           + size_t(2*num_k_real*size_t( size_t(v2/skip_k)+num_k_real))
-                //           + size_t(pow(2*size_t(num_k_real),2))*size_t( size_t(v3/skip_k)+num_k_real);
-                //     psi_point_real+=psi_point*cos(phases_send[index]); 
-                //     psi_point_im+=psi_point*sin(phases_send[index]); 
-                //   }                
-                // }
-                // else{
-                  if (E >0){
-                    double fe = eddington->fE_func(E);
-                    double psi_point = pow(2*M_PI/Length * skip_k/ratiomass, 3./2)*sqrt(fe);
-                    size_t index = size_t( size_t(v1/skip_k)+num_k_real) 
-                          + size_t(2*num_k_real*size_t( size_t(v2/skip_k)+num_k_real))
-                          + size_t(pow(2*size_t(num_k_real),2))*size_t( size_t(v3/skip_k)+num_k_real);
-                    psi_point_real +=  psi_point*cos(phases_send[index] + 2*M_PI/Length *vx);
-                    psi_point_im +=  psi_point*sin(phases_send[index] + 2*M_PI/Length *vx);
-                  }
-                // }
+                if (E >0){
+                  double fe = eddington->fE_func(E);
+                  double psi_point = pow(2*M_PI/Length * skip_k/ratiomass, 3./2)*sqrt(fe);
+                  size_t index = size_t( size_t(v1/skip_k)+num_k_real) 
+                        + size_t(2*num_k_real*size_t( size_t(v2/skip_k)+num_k_real))
+                        + size_t(pow(2*size_t(num_k_real),2))*size_t( size_t(v3/skip_k)+num_k_real);
+                  psi_point_real +=  psi_point*cos(phases_send[index] + 2*M_PI/Length *vx);
+                  psi_point_im +=  psi_point*sin(phases_send[index] + 2*M_PI/Length *vx);
+                }
               }
           }
         }

@@ -144,7 +144,7 @@ int main(int argc, char** argv){
   if (initial_cond == "stars" ) {// Stars in ULDM background
     if (params_initial_cond.size() > 2*num_fields-2){
       multi_array<double, 1> Nparts(extents[num_fields]);
-      outputname=directory_name+"stars_levkov_mpi" + outputname;
+      outputname=directory_name+"stars_levkov" + outputname;
       for (int i=0; i<num_fields;i++){
         Nparts[i] = stod(params_initial_cond[i]); // Number of particles
         outputname = outputname + "Npart"+to_string(i) +"_"+ to_string(Nparts[i]) + "_";
@@ -155,29 +155,15 @@ int main(int argc, char** argv){
         }
       }
       
-      multi_array<double, 2> stars_arr(extents[2][num_stars]);
-      ifstream infile = ifstream(outputname+"stars_backup.txt");
-      int l = 0;
-      int star_i = 0;
-      string temp;
-      while (std::getline(infile, temp, ' ')) {
-        double num = stod(temp);
-        if(l<8){ // loop over single star feature
-          stars_arr[star_i][l] = num;
-          cout<< stars_arr[star_i][l] << " " << star_i << " " << l << endl;
-          l++;
-        }
-        if(l==8){ // loop over
-          star_i++;
-          l=0;
-        }
-      }
+      multi_array<double, 2> stars_arr = D3.generate_random_stars(1/(2*sqrt(3)));
 
       D3.set_output_name(outputname);
       D3.put_initial_stars(stars_arr);
       D3.set_ratio_masses(ratio_mass);
-      if(start_from_backup=="true")
+      if(start_from_backup=="true"){
         D3.initial_cond_from_backup();
+        D3.get_star_backup();
+      }
       else{
         for (int i=0; i<num_fields; i++){
           D3.set_waves_Levkov(Nparts[i], i);
@@ -187,7 +173,34 @@ int main(int argc, char** argv){
     else{
       run_ok=false; 
       if (world_rank==0)
-        cout<<"You need 2*nfields arguments to pass to the code: {Npart}, {ratio_mass except for field 0}" << endl;
+        cout<<"You need 2*nfields-1 arguments to pass to the code: {Npart}, {ratio_mass except for field 0}" << endl;
+    }
+  }
+  
+
+  else if (initial_cond == "stars_noise" ) {// Stars in Gaussian noise
+    if (params_initial_cond.size() > 1){
+      outputname=directory_name+"stars_gauss_noise" + outputname;
+      double Acorr = stod(params_initial_cond[0]); // Amplitude of the correlation function
+      double Lcorr = stod(params_initial_cond[1]); // Length of the correlation function
+      multi_array<double, 2> stars_arr = D3.generate_random_stars(1./(2*sqrt(3)*Lcorr));
+      outputname = outputname + "Acorr_"+to_string(Acorr)+ "_Lcorr_"+to_string(Lcorr) 
+        + "_Nstars_"+to_string(num_stars) + "_";
+      D3.set_output_name(outputname);
+      D3.put_initial_stars(stars_arr);
+      D3.set_ratio_masses(ratio_mass);
+      if(start_from_backup=="true"){
+        D3.get_star_backup();
+        D3.initial_cond_from_backup();
+      }
+      else{
+        D3.set_Gauss_noise(Acorr, Lcorr,0);
+      }
+    }
+    else{
+      run_ok=false; 
+      if (world_rank==0)
+        cout<<"You need 2 arguments to pass to the code: Acorr, Lcorr " << endl;
     }
   }
   
@@ -448,8 +461,6 @@ int main(int argc, char** argv){
         D3.get_star_backup();
       }
       else{
-        // Sets the number of steps to relax the halo
-        D3.set_numsteps(numstep_relax);
         NFW *profile_nfw = new NFW(rs, rhos, Length, true);// The actual max radius is between Length and Length/2
         // For stars, there is no meaning to put Length as rmax
         Eddington eddington_nfw = Eddington(true);
@@ -462,10 +473,14 @@ int main(int argc, char** argv){
         // in the backup file
         ofstream psi_snapshot;
         D3.outputfullPsi(psi_snapshot,false,1);
-        
-        D3.put_numstar_eff(0);
-        // Run until relaxing time
-        D3.solveConvDif();
+        // if numstep_relax==0, do not do evolution without stars
+        if(numstep_relax>0){
+          // Sets the number of steps to relax the halo
+          D3.set_numsteps(numstep_relax);
+          D3.put_numstar_eff(0);
+          // Run until relaxing time
+          D3.solveConvDif();
+        }
         D3.set_numsteps(numsteps);
         D3.put_numstar_eff(num_stars);
         // Then generate stars
@@ -491,8 +506,10 @@ int main(int argc, char** argv){
           // Stars gravity is not taken into account, so the potential 
           // should be just nfw
           // eddington_stars.set_profile_pot(profile_plummer);
-          eddington_stars.generate_fE_arr(500, Length/Nx, Length/3);
+          eddington_stars.generate_fE_arr(1000, Length/Nx, Length/3);
           vector<double> xmax;
+          // Call this function to set the maximum density location in D3
+          double max_density = D3.find_maximum(0);
           vector<double> v_cm;
           for (int i=0; i<3; i++){
             xmax.push_back(D3.get_maxx(0,i)*Length/Nx);
@@ -542,40 +559,47 @@ int main(int argc, char** argv){
         D3.get_star_backup();
       }
       else{
-        // Sets the number of steps to relax the halo
-        D3.set_numsteps(numstep_relax);
-        Burkert *profile_burk = new Burkert(r0, rho0, Length, true);// The actual max radius is between Length and Length/2
+        double length_max_halo = Length;
+        Burkert *profile_burk = new Burkert(r0, rho0, length_max_halo, true);// The actual max radius is between Length and Length/2
         // For stars, there is no meaning to put Length as rmax
         Eddington eddington_burk = Eddington(true);
         eddington_burk.set_profile_den(profile_burk);
         eddington_burk.set_profile_pot(profile_burk);
         // setEddington computes fE_func, so you should run it before
-        D3.setEddington(&eddington_burk, 500, Length/Nx, Length, 0, ratio_mass[0], num_k, boolk,
+        D3.setEddington(&eddington_burk, 500, Length/Nx, length_max_halo, 0, ratio_mass[0], num_k, boolk,
             int(Nx/2),int(Nx/2),int(Nx/2) ); // The actual max radius is between Length and Length/2
         
         // Print the full initial snapshot, it prints in a snapshot file and not
         // in the backup file
         ofstream psi_snapshot;
         D3.outputfullPsi(psi_snapshot,false,1);
-        
-        D3.put_numstar_eff(0);
-        // Run until relaxing time
-        D3.solveConvDif();
+        // if numstep_relax==0, do not do evolution without stars
+        if(numstep_relax>0){
+          // Sets the number of steps to relax the halo
+          D3.set_numsteps(numstep_relax);
+          D3.put_numstar_eff(0);
+          // Run until relaxing time
+          D3.solveConvDif();
+        }
         D3.set_numsteps(numsteps);
         D3.put_numstar_eff(num_stars);
         // Then generate stars
         if(world_rank==0){
+          double Length_max_stars= Length/3;
           Eddington eddington_stars = Eddington(false);
-          Plummer *profile_plummer = new Plummer(r_plummer, M_plummer, Length/3, true);
+          Plummer *profile_plummer = new Plummer(r_plummer, M_plummer, Length_max_stars, true);
           // If you define a different max length, you should define a new Profile 
           // with that max length
-          Burkert *profile_burk_stars = new Burkert(r0, rho0, Length/3, true);
+          Burkert *profile_burk_stars = new Burkert(r0, rho0, Length_max_stars, true);
           eddington_stars.set_profile_den(profile_plummer);
           eddington_stars.set_profile_pot(profile_burk_stars);
           // Stars gravity is not taken into account, so the potential 
           // should be just burkert
-          eddington_stars.generate_fE_arr(500, Length/Nx, Length/3);
+          eddington_stars.generate_fE_arr(500, Length/Nx, Length_max_stars);
           vector<double> xmax;
+          // Call this function to set the maximum density location in D3,
+          // needed if numstep_relax==0
+          double max_density = D3.find_maximum(0);
           vector<double> v_cm;
           for (int i=0; i<3; i++){
             xmax.push_back(D3.get_maxx(0,i)*Length/Nx);
@@ -583,7 +607,7 @@ int main(int argc, char** argv){
             // v_cm.push_back(0);
           }
           multi_array<double,2> stars_arr = D3.generate_stars(&eddington_stars,
-            Length/Nx, Length/3, xmax, v_cm);
+            Length/Nx, Length_max_stars, xmax, v_cm);
           D3.put_initial_stars(stars_arr);
           // World rank 0 creates the star backup, then all the other ranks will take from this backup
           D3.out_star_backup();

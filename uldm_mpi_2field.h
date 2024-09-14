@@ -1181,6 +1181,20 @@ public:
     void set_theta(double Npart, int whichPsi);
 
     /**
+    * @brief Sets Gaussian noise in Fourier space initial conditions.
+    * 
+    * This function sets Gaussian noise in the Fourier space initial conditions. The noise is characterized
+    * by its amplitude and correlation length. The function also calculates the Fourier transform of the noise
+    * and transfers it to the psi array. Additionally, it logs the initial conditions to a file.
+    * 
+    * @param A_rand The amplitude of the Gaussian noise.
+    * @param l_corr The correlation length of the Gaussian noise.
+    * @param whichF An integer specifying which field to apply the noise to.
+    */
+    void set_Gauss_noise(double A_rand, double l_corr, int whichF);
+    
+    
+    /**
      * @brief Set elliptic collapse initial conditions.
      * 
      * @param norm The normalization factor.
