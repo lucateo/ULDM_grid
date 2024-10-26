@@ -500,7 +500,7 @@ void domain3::set_static_profile(Profile *profile, int whichF, vector<double> vc
         double sqrt_density = 0; 
         if (rad==0)
         // Avoid division by zero
-          sqrt_density = sqrt( profile->density(deltaX/10) );
+          sqrt_density = sqrt( profile->density(deltaX/2) );
         else
           sqrt_density = sqrt( profile->density(rad) );
         psi[2*whichF][i][j][k] += sqrt_density * cos(phase);

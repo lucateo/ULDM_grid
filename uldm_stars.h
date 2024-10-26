@@ -25,7 +25,10 @@ class domain_stars: public domain3
     double soften_param = deltaX/10.; ///< Softening parameter for gravitational law
     multi_array<double,2> stars; ///< Array to store star data
     ofstream stars_filename; ///< File stream for star data output
+    ofstream timesfile_profile_stars; ///< File stream for star profile output (center of mass of stars)
+    ofstream profilefile_stars; ///< File stream for star profile output (density)
     int num_stars_eff; ///< Effective number of stars
+    multi_array<double,1> center_mass_stars; ///< center of mass x, y,z of the stars
 
   public:
     /**
@@ -49,7 +52,9 @@ class domain_stars: public domain3
     domain_stars(size_t PS, size_t PSS, double L, int nfields, int Numsteps, double DT, int Nout, int Nout_profile, 
                  int pointsm, int WR, int WS, int Nghost, bool mpi_flag, int num_stars):
       domain3{PS, PSS, L, nfields, Numsteps, DT, Nout, Nout_profile, 
-              pointsm, WR, WS, Nghost, mpi_flag}, stars(extents[num_stars][8])
+              pointsm, WR, WS, Nghost, mpi_flag}, 
+              stars(extents[num_stars][8]),
+              center_mass_stars(extents[3])
       { num_stars_eff = num_stars; };
 
     /**
@@ -105,6 +110,107 @@ class domain_stars: public domain3
       acceleration[2] = 1/(4*M_PI) * mass * (z - keff*deltaX)/ pow(distance,3);
       return acceleration;
     }
+
+// Cyclic for boundary conditions, for computing the center of mass from the maximum density point
+// of the grid
+double cyc_stars(double ar, double le){
+  if(ar>le/2) ar=ar-le;
+  else if(ar<-le/2) ar=ar+le;
+  return ar;
+}
+
+// Find the center of mass of the stars, no mpi
+void find_center_mass(int whichPsi){
+  double xcm = 0;
+  double ycm = 0;
+  double zcm = 0;
+  double mass_tot = 0;
+  for(int s = 0; s <num_stars_eff; s++){
+    xcm += cyc_stars(stars[s][1]-maxx[whichPsi][0]*deltaX,Length)*stars[s][0];
+    ycm += cyc_stars(stars[s][2]-maxx[whichPsi][1]*deltaX,Length)*stars[s][0];
+    zcm += cyc_stars(stars[s][3]-maxx[whichPsi][2]*deltaX,Length)*stars[s][0];
+    mass_tot += stars[s][0];
+  }
+  // From the center of mass with respect to the maximum point, to the correct part of the grid
+  center_mass_stars[0] = xcm/mass_tot + maxx[0][0]*deltaX;
+  center_mass_stars[1] = ycm/mass_tot + maxx[0][1]*deltaX;
+  center_mass_stars[2] = zcm/mass_tot + maxx[0][2]*deltaX;
+}
+
+// It computes the averaged density and energy as function of distance from center of mass of the stars
+multi_array<double,2> profile_density_star_center(int whichPsi){ 
+  vector<vector<double>> binned(6,vector<double>(pointsmax, 0));// Initialize vector of vectors, all with zero entries
+  //auxiliary vector to count the number of points in each bin, needed for average
+  vector<int> count(pointsmax, 0); // Initialize vector of dimension pointsmax, with 0s
+  // maxz does not have ghost cells
+  int extrak = PointsSS*world_rank -nghost;
+  // #pragma omp parallel for collapse(3)
+  for(int i=0;i<PointsS;i++)
+    for(int j=0; j<PointsS;j++)
+      for(int k=nghost; k<PointsSS+nghost;k++){
+        double Dx=center_mass_stars[0]-i*deltaX; if(abs(Dx)>Length/2){Dx=abs(Dx)-Length;} // workaround which takes into account the periodic boundary conditions
+        double Dy=center_mass_stars[1]-j*deltaX; if(abs(Dy)>Length/2){Dy=abs(Dy)-Length;} // periodic boundary conditions!
+        double Dz=center_mass_stars[2]-(k+extrak)*deltaX; if(abs(Dz)>Length/2){Dz=abs(Dz)-Length;} // periodic boundary conditions!
+        int distance=int(pow(Dx*Dx+Dy*Dy+Dz*Dz, 0.5)/deltaX);
+        if(distance<pointsmax){
+          //adds up all the points in the 'shell' with radius = distance
+          binned[1][distance] = binned[1][distance] + pow(psi[2*whichPsi][i][j][k],2) + pow(psi[2*whichPsi+1][i][j][k],2);
+          binned[2][distance] = binned[2][distance] + energy_kin(i,j,k,whichPsi)*pow(Length/PointsS,3);
+          binned[3][distance] = binned[3][distance] + energy_pot(i,j,k,whichPsi)*pow(Length/PointsS,3);
+          binned[4][distance] = binned[4][distance] + Phi[i][j][k-nghost];   // because Phi doesn't have ghosts
+          // binned[5][distance] = binned[5][distance] + atan2(psi[1][i][j][k], psi[0][i][j][k]);
+          count[distance]=count[distance]+1; //counts the points that fall in that shell
+        }
+      }
+
+  // collect onto node 0
+  if(world_rank!=0 && mpi_bool==true){
+    MPI_Send(&count.front(), count.size(), MPI_INT, 0, 301, MPI_COMM_WORLD);
+    for(int lp=0;lp<6;lp++){
+      MPI_Send(&binned[lp].front(), binned[lp].size(), MPI_DOUBLE, 0, 300+lp, MPI_COMM_WORLD);
+    }
+  }
+
+  if(world_rank==0 && mpi_bool==true){
+    for(int lpb=1;lpb<world_size;lpb++){ // recieve from every other node
+      vector<vector<double>> recBinned(6, vector<double>(pointsmax,0 ));
+      vector<int> recCount(pointsmax,0); //vector to recieve data into
+      MPI_Recv(&recCount.front(),recCount.size(), MPI_INT, lpb, 301, MPI_COMM_WORLD,MPI_STATUS_IGNORE);
+
+      for(int lpc=0;lpc<6;lpc++){
+        MPI_Recv(&recBinned[lpc].front(),recBinned[lpc].size(), MPI_DOUBLE, lpb, 300+lpc, MPI_COMM_WORLD,MPI_STATUS_IGNORE);
+      }
+      transform(count.begin(), count.end(), recCount.begin(), count.begin(), std::plus<int>());
+      for(int lpc=0;lpc<6;lpc++){
+        transform(binned[lpc].begin(), binned[lpc].end(), recBinned[lpc].begin(), binned[lpc].begin(), std::plus<double>());
+      }
+    }
+  }
+
+  #pragma omp parallel for
+  for(int lp=0;lp<pointsmax;lp++){
+    if(count[lp]>0){
+      binned[0][lp]=(lp+0.5)*Length/PointsS;
+      binned[1][lp]=binned[1][lp]/count[lp];// the second component is the average density at that distance
+      binned[2][lp]=binned[2][lp]/count[lp];// Kinetic energy
+      binned[3][lp]=binned[3][lp]/count[lp];// Potential energy
+      binned[4][lp]=binned[4][lp]/count[lp];// Phi (radial)
+    }
+  }
+  #pragma omp barrier
+
+  // convert back to a multiarray to return
+  multi_array<double,2> binnedR(extents[6][pointsmax]);
+  #pragma omp parallel for collapse (2)
+  for(int ii=0;ii<6;ii++){
+    for(int jj=0;jj<pointsmax;jj++){
+      binnedR[ii][jj]=binned[ii][jj];
+    }
+  }
+  #pragma omp barrier
+  return binnedR;
+}
+
 
     /**
      * @brief Perform a time step for the stars.
@@ -186,6 +292,9 @@ class domain_stars: public domain3
     void step_stars_fourier(){
       multi_array<double,4> arr(extents[3][PointsS][PointsS][PointsS]);
       gradient_potential(arr);
+      // The total mass inside the box, used to remove mirror images contributions
+      double mass_box = total_mass(0);
+      int num_mirrors = 0;
       
       multi_array<double,1> x_compute(extents[3]);
       multi_array<int,2> xii(extents[2][3]);
@@ -194,9 +303,6 @@ class domain_stars: public domain3
       int k0_cell = PointsSS*world_rank - nghost;
       // #pragma omp parallel for collapse(1)
       for (int s = 0; s <num_stars_eff; s++){
-        double x = stars[s][1]+ 0.5*dt*stars[s][4];
-        double y = stars[s][2]+ 0.5*dt*stars[s][5];
-        double z = stars[s][3]+ 0.5*dt*stars[s][6];
         for(int i=0; i<3;i++){
           double coord_comp = cyc_double(stars[s][i+1]+ 0.5*dt*stars[s][i+4],Length);
           xii[0][i] = floor(coord_comp/deltaX);
@@ -226,6 +332,28 @@ class domain_stars: public domain3
         else {
           ax_shared=ax; ay_shared=ay; az_shared=az;
         }
+        // Now correct for the mirror images
+        for(int nmirx = -num_mirrors; nmirx< num_mirrors+1;nmirx++){
+          for(int nmiry = -num_mirrors; nmiry< num_mirrors+1;nmiry++)
+            for(int nmirz = -num_mirrors; nmirz< num_mirrors+1;nmirz++){
+              if(nmirx==0 && nmiry==0 && nmirz==0)
+                continue;
+              double x_mirror = x_compute[0] -maxx[0][0]*deltaX-nmirx*Length;
+              double y_mirror = x_compute[1] -maxx[0][1]*deltaX-nmiry*Length;
+              double z_mirror = x_compute[2] -maxx[0][2]*deltaX-nmirz*Length;
+              // cout<< "Mirror coord " << x_mirror << " " << y_mirror << " " << z_mirror << endl;
+              // cout<<"Maxx coord " << maxx[0][0] * deltaX - nmirx*Length << " " << maxx[0][1] * deltaX - nmiry*Length << " " << maxx[0][2] * deltaX - nmirz*Length << endl;
+              double distance = sqrt(pow(x_mirror,2) + pow(y_mirror,2) + pow(z_mirror,2) + soften_param);
+              double ax_mirror = -1/(4*M_PI) * mass_box * x_mirror / pow(distance,3);
+              double ay_mirror = -1/(4*M_PI) * mass_box * y_mirror / pow(distance,3);
+              double az_mirror = -1/(4*M_PI) * mass_box * z_mirror / pow(distance,3);
+              // cout<< "Mirror acc " << ax_shared << " " << ax_mirror << endl;
+              ax_shared -= ax_mirror;
+              ay_shared -= ay_mirror;
+              az_shared -= az_mirror;
+            }
+        }
+
         stars[s][4]= stars[s][4] - ax_shared*dt;
         stars[s][5]= stars[s][5] - ay_shared*dt;
         stars[s][6]= stars[s][6] - az_shared*dt;
@@ -341,10 +469,22 @@ class domain_stars: public domain3
       stars_filename.open(outputname+"stars.txt");
       stars_filename<<"{";   
       stars_filename.setf(ios_base::fixed);
+      
+      timesfile_profile_stars.open(outputname+"times_profile_stars.txt");
+      timesfile_profile_stars << "{";
+      timesfile_profile_stars.setf(ios_base::fixed);
+      
+      profilefile_stars.open(outputname+"profile_stars.txt");
+      profilefile_stars << "{";
+      profilefile_stars.setf(ios_base::fixed);
     }
     else if (world_rank==0 && start_from_backup == true){
       stars_filename.open(outputname+"stars.txt", ios_base::app); 
       stars_filename.setf(ios_base::fixed);
+      timesfile_profile_stars.open(outputname+"times_profile_stars.txt", ios_base::app);
+      timesfile_profile_stars.setf(ios_base::fixed);
+      profilefile_stars.open(outputname+"profile_stars.txt", ios_base::app);
+      profilefile_stars.setf(ios_base::fixed);
     }
   }
 
@@ -388,14 +528,16 @@ multi_array<double,2> generate_random_stars(double vel_max){
   * @param rmax Maximum radius.
   * @param xmax Maximum value of the density location vector.
   * @param vel_cm Center of mass velocity.
+  * @param start_star Index of the first star to generate.
+  * @param end_star Index of the last star to generate.
   * @return Multi-array containing the generated star data.
   * 
   * This function generates stars using the Eddington procedure, which involves
   * random sampling from the density and velocity distributions.
   */
-  multi_array<double, 2> generate_stars(Eddington * eddington, double rmin, double rmax,
-    vector<double> xmax, vector<double> vel_cm){
-    multi_array<double, 2> stars_arr(extents[num_stars_eff][8]);
+  void generate_stars(Eddington * eddington, double rmin, double rmax,
+    vector<double> xmax, vector<double> vel_cm, int start_star, int end_star){
+    // multi_array<double, 2> stars_arr(extents[num_stars_eff][8]);
     random_device rd;
     default_random_engine generator(rd()); 
     normal_distribution<double> distribution(0, 1);
@@ -427,7 +569,7 @@ multi_array<double,2> generate_random_stars(double vel_max){
       for(int ishow=0;ishow<cumulative_x.size();ishow++)
         cout<< r_arr[ishow] << " " <<cumulative_x[ishow]<<endl;
     // #pragma omp parallel for collapse(1)
-    for(int i=0; i<num_stars_eff; i++){
+    for(int i=start_star; i<end_star; i++){
       double rand = fRand(0,1);
       double x_rand = interpolant(rand, cumulative_x, r_arr);
       if(x_rand<rmin) x_rand = rmin;
@@ -463,7 +605,7 @@ multi_array<double,2> generate_random_stars(double vel_max){
         cout<< "Show v cumulative (final points)"<<endl;
         for(int ishow=cumulative_v.size()-10;ishow<cumulative_v.size();ishow++)
           cout<<scientific << v_arr[ishow] << " " <<cumulative_v[ishow]<<endl;
-        sleep(2);
+        // sleep(2);
       }
       double rand2 = fRand(0,1);
       double v_rand = interpolant(rand2, cumulative_v, v_arr);
@@ -472,18 +614,18 @@ multi_array<double,2> generate_random_stars(double vel_max){
         star[k] = distribution(generator);
       double mod_x = sqrt(star[0]*star[0] +star[1]*star[1] +star[2]*star[2]);
       double mod_v = sqrt(star[3]*star[3] +star[4]*star[4] +star[5]*star[5]);
-      stars_arr[i][0]=1; // Set the mass to 1
+      stars[i][0]=1; // Set the mass to 1
       for (int k=1;k<4;k++){
         double value = x_rand*star[k-1]/mod_x +xmax[k-1];
-        stars_arr[i][k] = cyc_double(value,Length);
+        stars[i][k] = cyc_double(value,Length);
       }
       for (int k=4;k<7;k++){
-        stars_arr[i][k] = v_rand*star[k-1]/mod_v + vel_cm[k-4];
+        stars[i][k] = v_rand*star[k-1]/mod_v + vel_cm[k-4];
       }
     }
     // #pragma omp barrier
     cout<<fixed;
-    return stars_arr;
+    // return stars_arr;
   }
 
   /**
@@ -492,7 +634,7 @@ multi_array<double,2> generate_random_stars(double vel_max){
   * 
   * @param eddington Pointer to the Eddington object.
   * @param rmin Minimum radius.
-  * @param rmax Maximum radius.
+  * @param rmax Maximum radius of random draw, it does not have to correspond to the maximum Eddington radius.
   * @return Multi-array containing the generated star data.
   * 
   * This function generates stars on a disk by sampling the radius using the surface density
@@ -551,6 +693,34 @@ multi_array<double,2> generate_random_stars(double vel_max){
     return stars_arr;
   }
 
+
+void snapshot_profile_stars(double stepCurrent){
+  cout.setf(ios_base::fixed);
+  if(world_rank==0)
+    profilefile_stars<<"{";
+  for(int l=0;l<nfields;l++){
+    maxdensity[l] = find_maximum(l);
+    find_center_mass(l);
+    multi_array<double,2> profile = profile_density_star_center(l);
+    if(world_rank==0){
+      print2(profile,profilefile_stars);
+      if(l<nfields-1)
+        profilefile_stars<<","<<flush;
+    }
+  }
+  if(world_rank==0){
+    profilefile_stars<<"}\n" <<","<<flush;
+    timesfile_profile_stars<<"{"<<scientific<<tcurrent;
+      timesfile_profile_stars<<","<<scientific<<center_mass_stars[0]<<"," 
+      <<center_mass_stars[1]<<"," <<center_mass_stars[2];
+    timesfile_profile_stars<<"}\n"<<","<<flush;
+    cout<<"Output profile results stars center"<<endl;
+  }
+  
+}
+
+
+
   /**
   * @brief Solves the convection-diffusion equation.
   * 
@@ -580,6 +750,7 @@ multi_array<double,2> generate_random_stars(double vel_max){
       tcurrent = 0.0;
       snapshot(stepCurrent); // I want the snapshot of the initial conditions
       snapshot_profile(stepCurrent);
+      snapshot_profile_stars(stepCurrent);
       exportValues(); // for backup purposes
       ofstream psi_final;
       outputfullPsi(psi_final,true,1);
@@ -661,6 +832,7 @@ multi_array<double,2> generate_random_stars(double vel_max){
           sortGhosts(); // Should be called, to do derivatives in real space
         }
         snapshot_profile(stepCurrent);
+        snapshot_profile_stars(stepCurrent);
         output_stars();
         out_star_backup();
         exportValues(); // for backup purposes
@@ -670,9 +842,10 @@ multi_array<double,2> generate_random_stars(double vel_max){
     }
     closefiles();
     stars_filename.close();
+    timesfile_profile_stars.close();
+    profilefile_stars.close();
     cout<<"end"<<endl;
   }
-
 };
 
 

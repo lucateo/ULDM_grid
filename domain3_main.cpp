@@ -133,15 +133,25 @@ double domain3::x_center_mass(int coordinate, int whichPsi){
         size_t real_k = k-nghost + PointsSS*world_rank;
         // It computes it around the maximum of density, to hopefully mitigate the periodic boundary problem
         if(coordinate==0) {
-          int Dd=maxx[whichPsi][0]-(int)i; if(abs(Dd)>PointsS/2){Dd=abs(Dd)-(int)PointsS;} 
+          int Dd=maxx[whichPsi][0]-(int)i; 
+          if(Dd>PointsS/2){
+            Dd=Dd-(int)PointsS;
+            }
+          else if (Dd<-PointsS/2){
+            Dd=Dd+(int)PointsS;
+          }
           totV=totV+(pow(psi[2*whichPsi][i][j][k],2)+pow(psi[2*whichPsi+1][i][j][k],2)) * Dd *Length/PointsS;
         }
         else if(coordinate==1){ 
-          int Dd=maxx[whichPsi][1]-(int)j; if(abs(Dd)>PointsS/2){Dd=abs(Dd)-(int)PointsS;} 
+          int Dd=maxx[whichPsi][1]-(int)j; 
+          if(Dd>PointsS/2){Dd=Dd-(int)PointsS;}
+          else if (Dd<-PointsS/2){Dd=Dd+(int)PointsS;} 
           totV=totV+(pow(psi[2*whichPsi][i][j][k],2)+pow(psi[2*whichPsi+1][i][j][k],2)) * Dd *Length/PointsS;
         }
         else if(coordinate==2) {
-          int Dd=maxx[whichPsi][2]-(int)real_k; if(abs(Dd)>PointsS/2){Dd=abs(Dd)-(int)PointsS;} 
+          int Dd=maxx[whichPsi][2]-(int)real_k; 
+          if(Dd>PointsS/2){Dd=Dd-(int)PointsS;}
+          else if (Dd<-PointsS/2){Dd=Dd+(int)PointsS;} 
           totV=totV+(pow(psi[2*whichPsi][i][j][k],2)+pow(psi[2*whichPsi+1][i][j][k],2)) * Dd *Length/PointsS;
         }
       }
@@ -199,7 +209,7 @@ long double domain3::full_energy_pot(int whichPsi){// it computes the potential 
 
 double domain3::find_maximum(int whichPsi){ // Sets maxx, maxy, maxz equal to the maximum, it just checks for one global maximum
   maxdensity[whichPsi] = 0;
-  #pragma omp parallel for collapse(3)
+  // #pragma omp parallel for collapse(3)
   for(int i=0;i<PointsS;i++)
     for(int j=0; j<PointsS;j++)
       for(int k=nghost; k<PointsSS+nghost;k++){
@@ -209,7 +219,7 @@ double domain3::find_maximum(int whichPsi){ // Sets maxx, maxy, maxz equal to th
           maxdensity[whichPsi] =density_current;
         }  
       }
-    #pragma omp barrier
+    // #pragma omp barrier
   // now compare across nodes (there's probably a better way to do this, but it's ok for now)
   maxNode=0;
   int maxx_local = maxx[whichPsi][0];
@@ -325,16 +335,6 @@ void domain3::makestep(double stepCurrent, double tstep){ // makes a step in a d
       }
     }
   }
-  // multi_array<long double, 1> psismean(extents[nfields]);
-  // for(int i=0;i<nfields;i++)
-  //   psismean[i]=psisqmean(i);
-  // if(world_rank==0){ 
-  //   cout<<"mean value of fields ";
-  //   for(int i=0;i<nfields;i++){
-  //     cout<<i<<" "<<psismean[i]<<", ";
-  //   }
-  // cout<<endl;
-  // }
 }
 
 void domain3::solveConvDif(){

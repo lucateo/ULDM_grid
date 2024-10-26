@@ -362,33 +362,21 @@ double Fourier::v_center_mass_FT(multi_array<double,4> &psi, double Length,int n
 
 void Fourier::transfer_arr(multi_array<double,4> &arr, int which_coord, double factor){
   size_t i,j,k;
-  // cout << "factor " << factor << endl;
   #pragma omp parallel for collapse(3)
   for(i=0;i<Nx;i++){
     for(j=0; j<Nx;j++){
       for(k=0; k<Nz;k++){
         arr[which_coord][i][j][k]=factor*rin[i+Nx*j+Nx*Nx*k][0];
-        // if(factor*rin[i+Nx*j+Nx*Nx*k][0]!=0)cout << arr[which_coord][i][j][k] << endl;
       }
     }
   }
   #pragma omp barrier
-  // cout << "LAMA " << arr[which_coord][10][0][0] << " " << rin[10+Nx*0+Nx*Nx*0][0] << endl;
 }
 //function for the center of mass velocity using the FT
 // note this does not sum up the values on different nodes
 void Fourier::kPhi_FT(multi_array<double,3> &Phi_in,multi_array<double,4> &arr, double Length){
   input_potential(Phi_in);
   calculateFT();
-  // #pragma omp parallel for collapse (3)
-  // for (size_t i = 0; i <Nx; i++)
-  //   for (size_t j = 0; j <Nx; j++)
-  //     for (size_t k = 0; k <Nz; k++){ // CHANGE FOR MPI
-  //       if (rin[i+Nx*j+Nx*Nx*k][0]>10) cout<< "Exceeds " << rin[i+Nx*j+Nx*Nx*k][0] << " " << i << " " << j << " " << k << endl;
-  //     }
-  // #pragma omp barrier
-  // cout<<"Phi in " << Phi_in[12][32][32]<<endl;
-  //   cout<< "FT not working? " << rin[10][0] << " " << rin[10][1] << endl;
   for(int coordinate=0; coordinate<3; coordinate++){
     #pragma omp parallel for collapse(3)
     for(size_t i=0;i<Nx;i++)
@@ -405,9 +393,6 @@ void Fourier::kPhi_FT(multi_array<double,3> &Phi_in,multi_array<double,4> &arr, 
         }
     #pragma omp barrier
     calculateIFT();
-    // cout<< "IFT not working? " << rin[10][0] << " " << rin[10][1] << endl;
-    // cout<< "Factor 0? " <<1.0/(Nx*Nx*Nx) << endl;
     transfer_arr(arr,coordinate,1.0/(Nx*Nx*Nx));
-    // cout<< "Arr transfer? " << arr[coordinate][10][0][0] << endl;
   }
 }

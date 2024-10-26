@@ -117,7 +117,7 @@ double domain3::get_maxx(int whichPsi, int coord){
 void domain3::outputSlicedDensity(ofstream& fileout){ // Outputs the projected 2D density profile
   // multi_array<double,3> density_sliced(extents[nfields][PointsS][PointsS]);
   vector<double> density_sliced(nfields*PointsS*PointsS,0);
-  #pragma omp parallel for collapse(4)
+  #pragma omp parallel for collapse(3)
   for(int l = 0; l < nfields; l++)
     for(size_t i=0;i<PointsS;i++)
       for(size_t j=0; j<PointsS;j++)
@@ -171,7 +171,7 @@ multi_array<double,2> domain3::profile_density(int whichPsi){ // It computes the
   vector<int> count(pointsmax, 0); // Initialize vector of dimension pointsmax, with 0s
   // maxz does not have ghost cells
   int extrak = PointsSS*world_rank -nghost;
-  #pragma omp parallel for collapse(3)
+  // #pragma omp parallel for collapse(3)
   for(int i=0;i<PointsS;i++)
     for(int j=0; j<PointsS;j++)
       for(int k=nghost; k<PointsSS+nghost;k++){
@@ -189,7 +189,7 @@ multi_array<double,2> domain3::profile_density(int whichPsi){ // It computes the
           count[distance]=count[distance]+1; //counts the points that fall in that shell
         }
       }
-  #pragma omp barrier
+  // #pragma omp barrier
   // For the phase, I take only one ray
   // Only do this on the node that contains the maximum point
   if(world_rank==maxNode || mpi_bool==false){

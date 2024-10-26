@@ -710,6 +710,7 @@ class Eddington {
     vector<double> d2rhodpsi2_arr; ///< Interpolating array for the second derivative of density with respect to potential.
     vector<double> psi_arr; ///< Interpolating array for potential.
     vector<double> FE_arr; ///< Interpolating array for distribution function f(E).
+    double drho_dpsi0=0; ///< First derivative of density with respect to potential at rmax.
 
   public:
     bool same_profile_den_pot; ///< If true, the potential is entirely sourced by the density profile_density.
@@ -861,11 +862,12 @@ class Eddington {
       vector<double> rho_arr;
       vector<double> psiarr;
       cout << "psi max " << psi_potential(rmin) << endl;
+      cout << "psi max with Rmax = infinity " << -phi_potential(rmin) << endl;
       rmin = 0.9 * rmin; // Ensure that the maximum energy is never surpassed in the actual run
       // First point
-      double radius = pow(10, (log10(rmax) - log10(rmin)) / (numpoints - 1) * (numpoints - 1) + log10(rmin)); // Log spaced
-      rho_arr.push_back(profile_density(radius));
-      psiarr.push_back(psi_potential(radius));
+      rho_arr.push_back(profile_density(rmax));
+      // Enforce the first point to be zero, sometimes numerical errors can make it very negatively small
+      psiarr.push_back(0);
       int j = 0; // Index of the just filled array, it can be different from i, defined next
       // The remaining points
       for (int i = 1; i < numpoints; i++) {
@@ -879,6 +881,7 @@ class Eddington {
           j++;
         }
       }
+      drho_dpsi0 = (rho_arr[1] - rho_arr[0]) / (psiarr[1] - psiarr[0]);
       d2rhodpsi2_arr = num_second_derivative(psiarr, rho_arr);
       psi_arr = psiarr;
     }
@@ -922,7 +925,7 @@ class Eddington {
           double dy = d2rho_dpsi2(E - pow(Q1, 2)) + d2rho_dpsi2(E - pow(Q2, 2));
           bin += 0.5 * dx * dy;
         }
-        result.push_back(bin * 2 / (M_PI * M_PI * sqrt(8)));
+        result.push_back((bin + 0.5*drho_dpsi0/sqrt(E))* 2 / (M_PI * M_PI * sqrt(8)));
       }
       FE_arr = result;
     }
@@ -965,7 +968,7 @@ class Eddington {
         if (result < 0) result = 0;
       } 
       else if (E<0) { // If it is negative, set it to zero and raise warning
-        cout << "Warning: E="<< E <<" is negative, setting f(E) to zero" << endl;
+        // cout << "Warning: E="<< E <<" is negative, setting f(E) to zero" << endl;
         result = 0;
       }
       else { // If it is greater than the maximum, error
@@ -985,22 +988,59 @@ class Eddington {
   * @param radmin Minimum radius.
   * @param radmax Maximum radius.
   */
-  void generate_fE_arr(int numpoints, double radmin, double radmax) {
+  void generate_fE_arr(int numpoints, double radmin, double radmax, string outputfile = "",
+                        double radmax_vel_disp = 0) {
+      // radmax_vel_disp is the maximum radius for the velocity dispersion calculation,
+      // if it is zero, it is the same as radmax
+      if (radmax_vel_disp == 0) radmax_vel_disp = radmax;
+      else cout<<"radmax_vel_disp is different from radmax"<<endl;
       if ((analytic_Edd[0] == false || same_profile_den_pot == false) || analytic_Edd.size() > 1) { 
           cout << "Computing d2rho_dpsi2 array" << endl;
           compute_d2rho_dpsi2_arr(numpoints, radmin, radmax);
           compute_fE_arr();
       }
       cout << "E values" << "\t" << "f(E)" << endl;
+      // Print E, f(E) values
+      std::ofstream csv_file_fE(outputfile+"fE_values.csv");
       for (int i = 0; i < psi_arr.size(); i++) {
           cout << scientific << psi_arr[i] << "\t" << FE_arr[i] << "\t"; 
+          csv_file_fE << psi_arr[i] << "," << FE_arr[i] << endl; 
           if (i > 0 && i < psi_arr.size() - 1) {
               cout << d2rhodpsi2_arr[i - 1] << endl;
           } else {
               cout << endl;
           }
       }
-      cout << fixed;
+      csv_file_fE.close();
+    // Print the expected sigma2 values
+    std::ofstream csv_file(outputfile+"fE.csv");
+    for (int i =0; i<100; i++){
+      double rproj = radmin + (radmax_vel_disp-radmin)/100* i;
+      // Compute the prefactor
+      double prefactor = 0;
+      double dx = sqrt(radmax_vel_disp*radmax_vel_disp-rproj*rproj)/100;
+      for(int ll=0; ll<100; ll++){
+        double xi = dx* ll;
+        prefactor += profile_density(sqrt(rproj*rproj + xi*xi))*dx;
+      }
+      prefactor = 4*M_PI/3/prefactor;
+      double vmax = sqrt(2*psi_potential(rproj));
+      double sigma2 = 0;
+      double dv = vmax/100;
+      for(int ll=0; ll<100; ll++){
+        double xi = dx* ll;
+        for(int j=0; j<100; j++){
+          double vi = vmax*j/100;
+          double E = psi_potential(sqrt(rproj*rproj + xi*xi)) - 0.5 * pow(vi,2);
+          sigma2 += fE_func(E) *pow(vi,4)*dv*dx;
+        }
+      }
+      cout << rproj << "," << sqrt(prefactor*sigma2) << endl;
+      csv_file << rproj << "," << sqrt(prefactor*sigma2) << endl;
+    }
+    csv_file.close();
+
+    cout << fixed;
   }
 };
 
