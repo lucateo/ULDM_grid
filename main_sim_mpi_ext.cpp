@@ -274,11 +274,54 @@ int main(int argc, char** argv){
     }
   }
 
+  else if (initial_cond == "Burkert_Hernquist_ext_Eddington" ) {// External Burkert initial conditions with Eddington NFW profile
+    if (params_initial_cond.size() > 6){
+      double rho0_tilde = stod(params_initial_cond[0]);//Adimensional rho_0 for the NFW external potential
+      double rs_nfw = stod(params_initial_cond[1]); // Adimensional rs
+      double rho_edd = stod(params_initial_cond[2]); // Eddington rhos
+      double rs_edd = stod(params_initial_cond[3]); // Eddington rs
+      double M_Hern = stod(params_initial_cond[4]);//Adimensional M_H for the Henquist external potential
+      double r_H = stod(params_initial_cond[5]); // Adimensional r_h for Hernquist external profile
+      int num_k = stoi(params_initial_cond[6]); // Number of k in Eddington k sum
+      outputname = directory_name+"out_Ext_Eddington_Hernquist_Burkert" + outputname
+        + "_RsExt_" + to_string(rs_nfw) + "_rh0Ext_" + to_string(rho0_tilde)
+        + "_RhExt_" + to_string(r_H) + "_MhExt_" + to_string(M_Hern)
+        +"_Rs_" + to_string(rs_edd) + "_rh00_" + to_string(rho_edd) + "_";
+
+      int center = int(Nx/2);
+      
+      NFW * profile_ext_nfw = new NFW(rs_nfw, rho0_tilde, Length, true);
+      Hernquist * profile_ext_Hern = new Hernquist(r_H, M_Hern, Length, true);
+      // The potential is the sum of the external and Eddington;
+      Burkert * profile_den = new Burkert(rs_edd, rho_edd, 4*Length, true);
+      Eddington eddington = Eddington(false);
+      eddington.set_profile_den(profile_den);
+      eddington.set_profile_pot(profile_ext_nfw);
+      eddington.set_profile_pot(profile_ext_Hern);
+      eddington.set_profile_pot(profile_den);
+      D3.set_output_name(outputname);
+      D3.set_profile(profile_ext_nfw);
+      D3.set_profile(profile_ext_Hern);
+      D3.set_ratio_masses(ratio_mass);
+      if(start_from_backup=="true")
+        D3.initial_cond_from_backup();
+      else
+        D3.setEddington(&eddington, 1000, Length/Nx, Length, 0, ratio_mass[0], num_k, false, center,center,center); // The actual max radius is between Length and Length/2
+    }
+
+
+    else{
+      run_ok=false; 
+      if (world_rank==0)
+        cout<<"You need 7 arguments to pass to the code: rho0_tilde_ext, Rs_ext, rho0_tilde_Eddington, Rs_Eddington, M_Hernquist, R_Hernquist, num_k" << endl;
+    }
+  }
+
   else{
     run_ok=false; 
     if (world_rank==0){
       cout<< "String in 8th position does not match any possible initial conditions; possible initial conditions are:" << endl;
-      cout<< "NFW, NFW_ext_Eddington, NFW_solitons, NFW_Hernquist_ext_Eddington"<<endl;;
+      cout<< "NFW, NFW_ext_Eddington, NFW_solitons, NFW_Hernquist_ext_Eddington, Burkert_Hernquist_ext_Eddington"<<endl;;
     }
   }
 

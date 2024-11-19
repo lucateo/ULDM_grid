@@ -544,11 +544,17 @@ int main(int argc, char** argv){
       }
       int num_k = stoi(params_initial_cond[5+4*(nhalos-1)]); // Number of maximum k points in nested loop
       int numstep_relax = stoi(params_initial_cond[6 + 4*(nhalos-1)]); // Number of steps to relax the halo
+      double vcm_halo = 0;
       bool boolk = false; // simplify k sum always false
       for(int i=0; i<nhalos;i++){
         outputname = outputname+"rs_"+to_string(rs[i])+"_rhos_"+to_string(rhos[i])+
           "_r_plummer_"+to_string(r_plummer[i])+"_M_plummer_"+to_string(M_plummer[i])
           +"_";
+      }
+      // If it is there on the input parameters, use vcm_halo to set the relative halos velocities
+      if(params_initial_cond.size() > 7 + 4*(nhalos-1)){
+        vcm_halo = stod(params_initial_cond[7 + 4*(nhalos-1)]); // Center of mass velocity of the halo
+        outputname = outputname + "vcm_halo_"+to_string(vcm_halo)+"_";
       }
       outputname = outputname+"num_stars_"+to_string(num_stars)+"_";
       
@@ -563,7 +569,9 @@ int main(int argc, char** argv){
         multi_array<double, 2> stars_arr(extents[num_stars][8]);
         D3.put_initial_stars(stars_arr);
         double length_max_halo = 4*Length;
-        vector<int> x_center, y_center, z_center;
+        // Initialize vectors to zero with specified size
+        vector<int> x_center(nhalos, 0), y_center(nhalos, 0), z_center(nhalos, 0);
+        vector<double> vcm_halox(nhalos, 0.0), vcm_haloy(nhalos, 0.0), vcm_haloz(nhalos, 0.0);
         for(int i=0;i<nhalos;i++){
           NFW *profile_nfw = new NFW(rs[i], rhos[i], length_max_halo, true);// The actual max radius is between Length and Length/2
           // For stars, there is no meaning to put Length as rmax
@@ -572,18 +580,27 @@ int main(int argc, char** argv){
           eddington_nfw.set_profile_pot(profile_nfw);
           // Just sets the halo in the center of the box if there is only one halo
           if(nhalos ==1) {
-            x_center.push_back(int(Nx/2)); 
-            y_center.push_back(int(Nx/2)); 
-            z_center.push_back(int(Nx/2));
+            x_center[i] =int(Nx/2); 
+            y_center[i] =int(Nx/2); 
+            z_center[i] =int(Nx/2);
+            vcm_halox[i]=0; vcm_haloy[i]=0; vcm_haloz[i]=0;
           }
           else{
-            x_center.push_back(int(fRand(Nx/4,3*Nx/4))); 
-            y_center.push_back(int(fRand(Nx/4,3*Nx/4))); 
-            z_center.push_back(int(fRand(Nx/4,3*Nx/4)));
+            // Random velocity angle in the xy plane, leave the z component to zero
+            double rand_phi = fRand(0,2*M_PI);
+            x_center[i]=int(fRand(Nx/4,3*Nx/4)); 
+            y_center[i]=int(fRand(Nx/4,3*Nx/4)); 
+            z_center[i]=int(fRand(Nx/4,3*Nx/4));
+            vcm_halox[i]=vcm_halo*cos(rand_phi);
+            vcm_haloy[i]=vcm_halo*sin(rand_phi);
+            vcm_haloz[i]=0;
+            cout<<"vcm_halo "<<vcm_halo<<" "<<vcm_halox[i]<<" "<<vcm_haloy[i]<<" "<<vcm_haloz[i]<<endl;
           }
+          // Random direction of the vcm_halo on the xy plane
+          vector<double> vcm_halo_vect = {vcm_halox[i], vcm_haloy[i], vcm_haloz[i]};
           // setEddington computes fE_func, so you should run it before
-          D3.setEddington(&eddington_nfw, 500, Length/Nx, length_max_halo, 0, ratio_mass[0], num_k, boolk,
-              x_center[i],y_center[i],z_center[i] ); // The actual max radius is between Length and Length/2
+          D3.setEddington(&eddington_nfw, 1000, Length/Nx, length_max_halo, 0, ratio_mass[0], num_k, boolk,
+              x_center[i],y_center[i],z_center[i], vcm_halo_vect ); // The actual max radius is between Length and Length/2
         }
         // Print the full initial snapshot, it prints in a snapshot file and not
         // in the backup file
@@ -630,7 +647,7 @@ int main(int argc, char** argv){
             vector<double> xmax;
             // Call this function to set the maximum density location in D3
             double max_density = D3.find_maximum(0);
-            vector<double> v_cm;
+            vector<double> v_cm(3,0);
             if(nhalos==1){
               for (int i=0; i<3; i++){
                   xmax.push_back(D3.get_maxx(0,i)*Length/Nx);
@@ -638,12 +655,14 @@ int main(int argc, char** argv){
                   // v_cm.push_back(0);
                 }
             }
-              // Put just the center of the halos and vcm =0 if nhalos>1
+              // Put just the center of the halos and vcm =vcm_halo if nhalos>1
             else{
               xmax.push_back(x_center[id_halo]*Length/Nx);
               xmax.push_back(y_center[id_halo]*Length/Nx);
               xmax.push_back(z_center[id_halo]*Length/Nx);
-              v_cm.push_back(0); v_cm.push_back(0); v_cm.push_back(0);
+              v_cm[0]=vcm_halox[id_halo]; 
+              v_cm[1]=vcm_haloy[id_halo]; 
+              v_cm[2]=vcm_haloz[id_halo];
             }
             // Maximum length in profiles and here does not need to be the same
             // multi_array<double,2> stars_arr = D3.generate_stars(&eddington_stars,
@@ -664,8 +683,214 @@ int main(int argc, char** argv){
     }
     else{
       run_ok=false; 
-      if (world_rank==0)
+      if (world_rank==0){
         cout<<"You need 3+ 4*n_halo arguments to pass to the code: n_halo, [rs, rhos, r_plummer, M_plummer], num_k, numstep_relax" << endl;
+        cout<<"If you want to set the velocity of the halo, you need to pass vcm_halo as the last argument" << endl;
+      }
+    }
+  }
+
+
+  // Set an initial halo with anisotropy, let it relax, then put stars
+  else if (initial_cond == "halo_stars_anisotropy_NFW" ) {
+    outputname= directory_name+"halo_stars_anisotropy_NFW"+outputname;
+    if (params_initial_cond.size()> 6) {
+      // NFW parameters
+      double rs = stod(params_initial_cond[0]);
+      double rhos =stod(params_initial_cond[1]);
+      // Plummer parameters
+      double r_plummer =stod(params_initial_cond[2]);
+      double M_plummer=stod(params_initial_cond[3]);
+      double beta_ani = stod(params_initial_cond[4]);
+      int num_k = stoi(params_initial_cond[5]); // Number of maximum k points in nested loop
+      int numstep_relax = stoi(params_initial_cond[6]); // Number of steps to relax the halo
+      bool boolk = false; // simplify k sum always false
+      outputname = outputname+"rs_"+to_string(rs)+"_rhos_"+to_string(rhos)+
+        "_r_plummer_"+to_string(r_plummer)+"_M_plummer_"+to_string(M_plummer)
+        +"_beta_"+to_string(beta_ani)+"_num_stars_"+to_string(num_stars)+"_";
+      
+      D3.set_output_name(outputname);
+      D3.set_ratio_masses(ratio_mass);
+      
+      if(start_from_backup=="true"){
+        D3.initial_cond_from_backup();
+        D3.get_star_backup();
+      }
+      else{
+        multi_array<double, 2> stars_arr(extents[num_stars][8]);
+        D3.put_initial_stars(stars_arr);
+        double length_max_halo = 4*Length;
+        NFW *profile_nfw = new NFW(rs, rhos, length_max_halo, true);// The actual max radius is between Length and Length/2
+        // For stars, there is no meaning to put Length as rmax
+        Eddington eddington_nfw = Eddington(true, beta_ani);
+        eddington_nfw.set_profile_den(profile_nfw);
+        eddington_nfw.set_profile_pot(profile_nfw);
+        // setEddington computes fE_func, so you should run it before
+        D3.setEddington(&eddington_nfw, 1000, Length/Nx, length_max_halo, 0, ratio_mass[0], num_k, boolk,
+            int(Nx/2),int(Nx/2), int(Nx/2)); // The actual max radius is between Length and Length/2
+        // Print the full initial snapshot, it prints in a snapshot file and not
+        // in the backup file
+        ofstream psi_snapshot;
+        D3.outputfullPsi(psi_snapshot,false,1);
+        // if numstep_relax==0, do not do evolution without stars
+        // Also if number of halos is greater than one, do not relax the halo
+        if(numstep_relax>0 ){
+          // Sets the number of steps to relax the halo
+          D3.set_numsteps(numstep_relax);
+          D3.put_numstar_eff(0);
+          // Run until relaxing time
+          D3.solveConvDif();
+        }
+        D3.set_numsteps(numsteps);
+        D3.put_numstar_eff(num_stars);
+        // Then generate stars
+        if(world_rank==0){
+          double Length_max_stars= 10*Length;
+          Eddington eddington_stars = Eddington(false, beta_ani);
+          Plummer *profile_plummer = new Plummer(r_plummer, 
+              M_plummer, Length_max_stars, true);
+          NFW *profile_nfw_stars = new NFW(rs, rhos, Length_max_stars, true);
+          eddington_stars.set_profile_den(profile_plummer);
+          eddington_stars.set_profile_pot(profile_nfw_stars);
+          // Stars gravity is not taken into account, so the potential 
+          // should be just nfw
+          // eddington_stars.set_profile_pot(profile_plummer);
+          // Stars could be more concentrated than the resolution of the grid spacing
+          double len_min_stars = 0.1*Length/Nx;
+          eddington_stars.generate_fE_arr(1000, len_min_stars, Length_max_stars,outputname+"stars_");
+          vector<double> xmax;
+          // Call this function to set the maximum density location in D3
+          double max_density = D3.find_maximum(0);
+          vector<double> v_cm(3,0);
+          for (int i=0; i<3; i++){
+              xmax.push_back(D3.get_maxx(0,i)*Length/Nx);
+              v_cm.push_back(D3.v_center_mass(i,0));
+          }
+            // Put just the center of the halos and vcm =vcm_halo if nhalos>1
+          // Maximum length in profiles and here does not need to be the same
+          cout<<"num_stars "<<num_stars<<endl;
+          D3.generate_stars(&eddington_stars,
+            len_min_stars, Length/3, xmax, v_cm, 0, num_stars);
+          // World rank 0 creates the star backup, then all the other ranks will take from this backup
+          D3.out_star_backup();
+        }
+        D3.get_star_backup();
+      }
+      // After, if start_from_backup is false, it will not save the relaxing of halo part
+    }
+    else{
+      run_ok=false; 
+      if (world_rank==0){
+        cout<<"You need 7 arguments to pass to the code: rs, rhos, r_plummer, M_plummer, beta_anisotropy, num_k, numstep_relax" << endl;
+      }
+    }
+  }
+
+  
+  // Set 2 initial halos
+  else if (initial_cond == "2halos_stars_NFW" ) {
+    outputname= directory_name+"halo_stars_NFW"+outputname;
+    if (params_initial_cond.size()> 10) {
+      vector<double> rs;
+      vector<double> rhos;
+      vector<double> r_plummer;
+      vector<double> M_plummer;
+      int nhalos = 2;
+      for (int halo_num =0; halo_num<nhalos;halo_num++){
+        // NFW parameters
+        rs.push_back(stod(params_initial_cond[4*halo_num]));
+        rhos.push_back(stod(params_initial_cond[1+4*halo_num]));
+        // Plummer parameters
+        r_plummer.push_back(stod(params_initial_cond[2+4*halo_num]));
+        M_plummer.push_back(stod(params_initial_cond[3+4*halo_num]));
+      }
+      int num_k = stoi(params_initial_cond[8]); // Number of maximum k points in nested loop
+      double vcm_halo = stod(params_initial_cond[9]);
+      double dist_between_halos = stod(params_initial_cond[10]); 
+      bool boolk = false; // simplify k sum always false
+      for(int i=0; i<nhalos;i++){
+        outputname = outputname+"rs_"+to_string(rs[i])+"_rhos_"+to_string(rhos[i])+
+          "_r_plummer_"+to_string(r_plummer[i])+"_M_plummer_"+to_string(M_plummer[i])
+          +"_";
+      }
+      outputname = outputname+"vcm_"+to_string(vcm_halo)+"_dist_halos_"+to_string(dist_between_halos)
+        +"_num_stars_"+to_string(num_stars)+"_";
+      
+      D3.set_output_name(outputname);
+      D3.set_ratio_masses(ratio_mass);
+      
+      if(start_from_backup=="true"){
+        D3.initial_cond_from_backup();
+        D3.get_star_backup();
+      }
+      else{
+        multi_array<double, 2> stars_arr(extents[num_stars][8]);
+        D3.put_initial_stars(stars_arr);
+        double length_max_halo = 4*Length;
+        // Initialize vectors to zero with specified size
+        vector<int> x_center(nhalos, 0), y_center(2, 0), z_center(nhalos, 0);
+        vector<double> vcm_halox(nhalos, 0.0), vcm_haloy(nhalos, 0.0), vcm_haloz(nhalos, 0.0);
+        for(int i=0;i<nhalos;i++){
+          NFW *profile_nfw = new NFW(rs[i], rhos[i], length_max_halo, true);// The actual max radius is between Length and Length/2
+          // For stars, there is no meaning to put Length as rmax
+          Eddington eddington_nfw = Eddington(true);
+          eddington_nfw.set_profile_den(profile_nfw);
+          eddington_nfw.set_profile_pot(profile_nfw);
+          // Random velocity angle in the xy plane, leave the z component to zero
+          double rand_phi = fRand(0,2*M_PI);
+          x_center[i]=int(Nx/2. + dist_between_halos*Nx/Length*(-1/2.+i)); 
+          y_center[i]=int(Nx/2); 
+          z_center[i]=int(Nx/2);
+          vcm_halox[i]=vcm_halo*cos(rand_phi);
+          vcm_haloy[i]=vcm_halo*sin(rand_phi);
+          vcm_haloz[i]=0;
+          cout<<"vcm_halo "<<vcm_halo<<" "<<vcm_halox[i]<<" "<<vcm_haloy[i]<<" "<<vcm_haloz[i]<<endl;
+          // Random direction of the vcm_halo on the xy plane
+          vector<double> vcm_halo_vect = {vcm_halox[i], vcm_haloy[i], vcm_haloz[i]};
+          // setEddington computes fE_func, so you should run it before
+          D3.setEddington(&eddington_nfw, 1000, Length/Nx, length_max_halo, 0, ratio_mass[0], num_k, boolk,
+              x_center[i],y_center[i],z_center[i], vcm_halo_vect ); // The actual max radius is between Length and Length/2
+        }
+        // Print the full initial snapshot, it prints in a snapshot file and not
+        // in the backup file
+        ofstream psi_snapshot;
+        D3.outputfullPsi(psi_snapshot,false,1);
+        D3.put_numstar_eff(num_stars);
+        // Then generate stars
+        if(world_rank==0){
+          double Length_max_stars= 10*Length;
+          for (int id_halo =0; id_halo< nhalos;id_halo++){
+            Eddington eddington_stars = Eddington(false);
+            Plummer *profile_plummer = new Plummer(r_plummer[id_halo], 
+                M_plummer[id_halo], Length_max_stars, true);
+            NFW *profile_nfw_stars = new NFW(rs[id_halo], rhos[id_halo], Length_max_stars, true);
+            eddington_stars.set_profile_den(profile_plummer);
+            eddington_stars.set_profile_pot(profile_nfw_stars);
+            eddington_stars.generate_fE_arr(1000, Length/Nx, Length_max_stars,outputname+"stars_");
+            vector<double> xmax;
+            // Call this function to set the maximum density location in D3
+            double max_density = D3.find_maximum(0);
+            vector<double> v_cm(3,0);
+            xmax.push_back(x_center[id_halo]*Length/Nx);
+            xmax.push_back(y_center[id_halo]*Length/Nx);
+            xmax.push_back(z_center[id_halo]*Length/Nx);
+            v_cm[0]=vcm_halox[id_halo]; 
+            v_cm[1]=vcm_haloy[id_halo]; 
+            v_cm[2]=vcm_haloz[id_halo];
+            D3.generate_stars(&eddington_stars,
+              Length/Nx, Length/3, xmax, v_cm, int(id_halo*num_stars/2), int((id_halo+1)*num_stars/2));
+          }
+          // World rank 0 creates the star backup, then all the other ranks will take from this backup
+          D3.out_star_backup();
+        }
+        D3.get_star_backup();
+      }
+    }
+    else{
+      run_ok=false; 
+      if (world_rank==0){
+        cout<<"You need 3+ 4*2 arguments to pass to the code: [rs, rhos, r_plummer, M_plummer], num_k, vcm, dist_halos" << endl;
+      }
     }
   }
 

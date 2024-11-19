@@ -512,7 +512,8 @@ void domain3::set_static_profile(Profile *profile, int whichF, vector<double> vc
 }
 
 void domain3::setEddington(Eddington *eddington, int numpoints, double radmin, double radmax, int fieldid, 
-  double ratiomass, int num_k, bool simplify_k, int center_x, int center_y,int center_z){
+  double ratiomass, int num_k, bool simplify_k, int center_x, int center_y,int center_z,
+  vector<double> vel_halo ){
   // If simplify_k is true, then it inserts the random phases as gaussians on |k|; if false, then it inserts the random phases
   // in every \vec{k} point. num_k is the total number of k points you run the nested loop over (to speed up computation), put 16 or 32
   // If the profile does not have analytic formulas for f(E), or potential profile \neq density profile, or there are multiple profiles,
@@ -538,7 +539,9 @@ void domain3::setEddington(Eddington *eddington, int numpoints, double radmin, d
     }
   }
   srand(time(NULL)); // Initialize the random seed for random phases
-  
+  double beta_anisotropy = eddington->get_beta_anisotropy();
+  if (world_rank==0)
+    cout<< "beta anisotropy is " << beta_anisotropy << endl;
   int extrak= PointsSS*world_rank -nghost; // Take into account the node where you are
   
   // Maximum kmax for phases initialization
@@ -660,14 +663,34 @@ void domain3::setEddington(Eddington *eddington, int numpoints, double radmin, d
                 double vx = Length/PointsS*(v1*i + v2*j + v3*(k+extrak)); 
                 double vtilde = 2*M_PI/ratiomass/Length *vv;// taking into account the ratio_mass r, to ensure periodic boundary conditions
                 double E = eddington->psi_potential(distance) - pow(vtilde,2)/2; // You have to ensure E > 0, for bound system
-                if (E >0){
-                  double fe = eddington->fE_func(E);
+                double L_ang = 1;
+                if (beta_anisotropy != 0 && vv != 0){
+                  // Obtain angle via scalar product 
+                  double cos_eta = Length/PointsS * (Dx*v1 + Dy*v2+Dz*v3)/distance/vv;
+                  // To avoid problems when sin_eta=0 and beta is positive, put cos_eta to the closest
+                  // value to 1 or -1 (I multiply by 0.1 to be sure, it should not create 
+                  // problems; 1/PointsS is delta_x/Length)
+                  double cosmax= sqrt(1-pow(0.1/PointsS,2));
+                  if (cos_eta >cosmax && beta_anisotropy>0){ 
+                    // cout<< "cos_eta is " << cos_eta <<", setting it to "<< cosmax << endl;
+                    cos_eta = cosmax;
+                  }
+                  else if(cos_eta <-cosmax && beta_anisotropy>0){ 
+                    // cout<< "cos_eta is " << cos_eta <<", setting it to "<< -cosmax << endl;
+                    cos_eta = -cosmax;
+                  }
+                  L_ang = abs(distance*vtilde*sin(acos(cos_eta)));
+                }
+                if (E >0 && L_ang>0){
+                  double fe = eddington->fE_func(E)*pow(L_ang,-2*beta_anisotropy);
                   double psi_point = pow(2*M_PI/Length * skip_k/ratiomass, 3./2)*sqrt(fe);
                   size_t index = size_t( size_t(v1/skip_k)+num_k_real) 
                         + size_t(2*num_k_real*size_t( size_t(v2/skip_k)+num_k_real))
                         + size_t(pow(2*size_t(num_k_real),2))*size_t( size_t(v3/skip_k)+num_k_real);
-                  psi_point_real +=  psi_point*cos(phases_send[index] + 2*M_PI/Length *vx);
-                  psi_point_im +=  psi_point*sin(phases_send[index] + 2*M_PI/Length *vx);
+                  psi_point_real +=  psi_point*cos(phases_send[index] + 2*M_PI/Length *vx
+                      + vel_halo[0]*i + vel_halo[1]*j + vel_halo[2]*(k+extrak));
+                  psi_point_im +=  psi_point*sin(phases_send[index] + 2*M_PI/Length *vx
+                      + vel_halo[0]*i + vel_halo[1]*j + vel_halo[2]*(k+extrak));
                 }
               }
           }

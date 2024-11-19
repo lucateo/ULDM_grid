@@ -711,6 +711,7 @@ class Eddington {
     vector<double> psi_arr; ///< Interpolating array for potential.
     vector<double> FE_arr; ///< Interpolating array for distribution function f(E).
     double drho_dpsi0=0; ///< First derivative of density with respect to potential at rmax.
+    double beta_anisotropy=0; ///< Anisotropy parameter.
 
   public:
     bool same_profile_den_pot; ///< If true, the potential is entirely sourced by the density profile_density.
@@ -720,7 +721,8 @@ class Eddington {
      * @brief Constructor for Eddington class.
      * @param same_prof_den If true, the potential is entirely sourced by the density profile_density.
      */
-    Eddington(bool same_prof_den) : same_profile_den_pot(same_prof_den) {}
+    Eddington(bool same_prof_den, double beta_ani=0) : same_profile_den_pot(same_prof_den), 
+      beta_anisotropy(beta_ani) {}
 
     /**
      * @brief Default constructor for Eddington class.
@@ -853,19 +855,20 @@ class Eddington {
     }
 
     /**
-     * @brief Compute the second derivative of density with respect to potential.
+     * @brief Compute the second derivative of density with respect to potential. If beta_anisotropy is different from zero, this is d^2(r^{2\beta}\rho)/d\Psi^2.
      * @param numpoints Number of points for interpolation.
      * @param rmin Minimum radius.
      * @param rmax Maximum radius.
      */
     void compute_d2rho_dpsi2_arr(int numpoints, double rmin, double rmax) {
-      vector<double> rho_arr;
+      // beta_ani should be < 0.5 to maintain the density monotonically decreasing (assuming \rho falls at least as fast as r^{-1})
+      vector<double> rho_arr; // rho_arr is actually r^{2\beta}\rho
       vector<double> psiarr;
       cout << "psi max " << psi_potential(rmin) << endl;
       cout << "psi max with Rmax = infinity " << -phi_potential(rmin) << endl;
       rmin = 0.9 * rmin; // Ensure that the maximum energy is never surpassed in the actual run
       // First point
-      rho_arr.push_back(profile_density(rmax));
+      rho_arr.push_back(profile_density(rmax)*pow(rmax, 2*beta_anisotropy));
       // Enforce the first point to be zero, sometimes numerical errors can make it very negatively small
       psiarr.push_back(0);
       int j = 0; // Index of the just filled array, it can be different from i, defined next
@@ -876,15 +879,26 @@ class Eddington {
         double radius = pow(10, (log10(rmax) - log10(rmin)) / (numpoints - 1) * (numpoints - 1 - i) + log10(rmin)); // Log spaced
         double psi = psi_potential(radius);
         if (abs((psi - psiarr[j]) / (psi + psiarr[j])) > 1E-10) { // If the relative change is larger than 1e-7, accept the point (to avoid very tiny changes in psi)
-          rho_arr.push_back(profile_density(radius));
+          rho_arr.push_back(profile_density(radius)*pow(radius, 2*beta_anisotropy));
+          // cout<< "radius " << radius << " psi " << psi << " rho " << profile_density(radius) << " rho_arr " << rho_arr[j] << endl;
           psiarr.push_back(psi_potential(radius));
           j++;
         }
       }
-      drho_dpsi0 = (rho_arr[1] - rho_arr[0]) / (psiarr[1] - psiarr[0]);
+      // If \beta \neq 0, avoid computing the first derivative at zero 
+      if (beta_anisotropy == 0){
+        cout<<"Beta anisotropy is zero"<<endl;
+        drho_dpsi0 = (rho_arr[1] - rho_arr[0]) / (psiarr[1] - psiarr[0]);
+      }
       d2rhodpsi2_arr = num_second_derivative(psiarr, rho_arr);
       psi_arr = psiarr;
     }
+
+    /**
+     * @brief Returns beta anisotropy.
+     * @return Beta anisotropy.
+     */ 
+    double get_beta_anisotropy() { return beta_anisotropy; }
 
     /**
      * @brief Get the array of potential values.
@@ -911,6 +925,10 @@ class Eddington {
       int Ndim = psi_arr.size();
       double Qmin = min(1e-4 * psi_arr[1], psi_arr[1]); // psi_arr[0] is zero
       vector<double> result;
+      double prefactor = pow(2,beta_anisotropy-0.5)*sin((-beta_anisotropy+1./2.)*M_PI) 
+        *tgamma(3./2. -beta_anisotropy) / (pow(M_PI,5./2.) * tgamma(1.-beta_anisotropy)
+        *(1./2.-beta_anisotropy));
+      cout << "prefactor " << prefactor << " " << 2/sqrt(8)/pow(M_PI,2)<< endl;
       result.push_back(0); // the first bin should be zero
       for (int i = 1; i < Ndim; i++) { // avoid very first bin, which is zero
         double Qmax = sqrt(psi_arr[i]);
@@ -922,10 +940,12 @@ class Eddington {
           double Q2 = pow(10, (log10(Qmax) - log10(Qmin)) / numpoints_int * (j + 1) + log10(Qmin));
           double dx = Q2 - Q1;
           // Use trapezoid integration
-          double dy = d2rho_dpsi2(E - pow(Q1, 2)) + d2rho_dpsi2(E - pow(Q2, 2));
+          double dy = d2rho_dpsi2(E - pow(Q1, 2))*pow(Q1,2*beta_anisotropy) 
+            + d2rho_dpsi2(E - pow(Q2, 2))*pow(Q2,2*beta_anisotropy);
+          // cout << "dy " << dy << " " << d2rho_dpsi2(E - pow(Q1, 2))+  d2rho_dpsi2(E - pow(Q2, 2)) << endl; 
           bin += 0.5 * dx * dy;
         }
-        result.push_back((bin + 0.5*drho_dpsi0/sqrt(E))* 2 / (M_PI * M_PI * sqrt(8)));
+        result.push_back((bin + 0.5*drho_dpsi0/sqrt(E))* prefactor);
       }
       FE_arr = result;
     }

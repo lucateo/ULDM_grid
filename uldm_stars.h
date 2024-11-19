@@ -530,82 +530,127 @@ multi_array<double,2> generate_random_stars(double vel_max){
   * @param vel_cm Center of mass velocity.
   * @param start_star Index of the first star to generate.
   * @param end_star Index of the last star to generate.
+  * @param beta_ani Anisotropy parameter. Default is 0.
   * @return Multi-array containing the generated star data.
   * 
   * This function generates stars using the Eddington procedure, which involves
   * random sampling from the density and velocity distributions.
   */
   void generate_stars(Eddington * eddington, double rmin, double rmax,
-    vector<double> xmax, vector<double> vel_cm, int start_star, int end_star){
-    // multi_array<double, 2> stars_arr(extents[num_stars_eff][8]);
+    vector<double> xmax, vector<double> vel_cm, int start_star, 
+    int end_star){
     random_device rd;
     default_random_engine generator(rd()); 
     normal_distribution<double> distribution(0, 1);
+    double beta_ani = eddington->get_beta_anisotropy();
     vector<double> r_arr; // Interpolating array, random uniform variable
+    vector<double> integrand_x; // Integrand for the x cumulative
     vector<double> cumulative_x; // Cumulative of p(x) array
-    int npoints = PointsS;
-    int numpoints_int = 50; // Number of points for the integration
-    int npoints_vel = 500; // Number of points for the velocity cumulative computation
-    r_arr.push_back(0); 
-    cumulative_x.push_back(0); 
-    rmin = 0.9*rmin; // Ensure that the maximum energy is never surpassed in the actual run
-    for(int i=0; i< npoints+1; i++){ // avoid very first bin, which is zero
+    vector<double> eta_angle; // vector for the interpolation of the cumulative of the angle
+    vector<double> cumulative_eta; // Cumulative of p(eta) array
+    int npoints = 1000;
+    int npoints_vel = 1000; // Number of points for the velocity cumulative computation
+    r_arr.push_back(0);
+    integrand_x.push_back(0); 
+    cumulative_x.push_back(0);
+    eta_angle.push_back(0);
+    cumulative_eta.push_back(0);
+    // Ensure that maximum energy is never surpassed in the actual run
+    rmin = 0.9*rmin; 
+    for(int i=1; i< npoints+1; i++){ // avoid very first bin, which is zero
+      // log spaced
       double r = pow(10 ,(log10(rmax) -log10(rmin))/(npoints)* i + log10(rmin));
       r_arr.push_back(r);
-      double bin = 0;
-      double rmin_int;
-      if(i==0) rmin_int = 0.1*rmin;
-      else rmin_int = r_arr[i];
-      for(int j=0; j< numpoints_int; j++){
-        double r1 = pow(10 ,(log10(r) -log10(rmin_int))/(numpoints_int)* j + log10(rmin_int));
-        double r2 =pow(10 ,(log10(r) -log10(rmin_int))/(numpoints_int)* (j+1) + log10(rmin_int));
-        double dx = r2 - r1;
-        double dy = eddington->profile_density(r1)*r1*r1 + eddington->profile_density(r2)*r2*r2;
-        bin+= 0.5*dx*dy;
-      }
-      cumulative_x.push_back( cumulative_x[i] + bin*4*M_PI/eddington->profiles_massMax(rmax));
+      integrand_x.push_back(4*M_PI*eddington->profile_density(r)*r*r/eddington->profiles_massMax(rmax));
     }
-      cout<< "Show x cumulative"<<endl;
-      for(int ishow=0;ishow<cumulative_x.size();ishow++)
-        cout<< r_arr[ishow] << " " <<cumulative_x[ishow]<<endl;
+    // Now cumulative sum with trapezoid rule
+    for(int i=1; i<integrand_x.size();i++){
+      double dx = r_arr[i] - r_arr[i-1];
+      double dy = (integrand_x[i] + integrand_x[i-1])/2;
+      cumulative_x.push_back(dx*dy + cumulative_x[i-1]);
+    }
+    cout<< "Show x cumulative"<<endl;
+    for(int ishow=0;ishow<cumulative_x.size();ishow++)
+      cout<< r_arr[ishow] << " " <<cumulative_x[ishow]<<endl;
+    
+    // Compute eta cumulative
+    for(int i=0; i< 200;i++){
+      double eta = M_PI/200*(i+1) -1e-8; // Avoid to go beyond pi
+      eta_angle.push_back(eta);
+      cumulative_eta.push_back(pow(sin(eta),1-2*beta_ani));
+    }
+    // Do the sum on cumulative_eta to find normalization
+    double norm_eta = 0; 
+    for(int i=0; i<cumulative_eta.size();i++){
+      norm_eta += cumulative_eta[i];
+    }
+    // Now normalize and take cumulative sum; no need to put dx, they cancel out
+    for(int i=0; i<cumulative_eta.size();i++){
+      cumulative_eta[i] = cumulative_eta[i]/norm_eta;
+      if(i>0)
+        cumulative_eta[i] = cumulative_eta[i] + cumulative_eta[i-1];
+    }
+    cout<< "Show eta cumulative, beta_anisotropy = " <<beta_ani<<endl;
+    for(int ishow=0;ishow<cumulative_eta.size();ishow++)
+      cout<< eta_angle[ishow] << " " <<cumulative_eta[ishow]<<endl;
     // #pragma omp parallel for collapse(1)
     for(int i=start_star; i<end_star; i++){
+      cout<< "Generating star "<< i << endl;
       double rand = fRand(0,1);
       double x_rand = interpolant(rand, cumulative_x, r_arr);
       if(x_rand<rmin) x_rand = rmin;
       if(x_rand > rmax) x_rand = rmax - rmax*1E-8;
+      double rand_eta = fRand(0,1);
+      double eta_rand = interpolant(rand_eta, cumulative_eta, eta_angle);
       vector<double> v_arr; // Interpolating array, random uniform variable
+      vector<double> integrand_v; // Integrand for the v cumulative
       vector<double> cumulative_v; // Cumulative of p(v|x) array
       // Avoid to go beyond vmax
       double vmax =sqrt(2*eddington->psi_potential(x_rand));
       double vmin = 0.001*vmax;
       v_arr.push_back(0); 
       cumulative_v.push_back(0);
-      for(int i=0; i< npoints_vel+1; i++){ 
-        double v = pow(10 ,(log10(vmax) -log10(vmin))/(npoints_vel)* i + log10(vmin));
-        v_arr.push_back(v);
-        double bin = 0;
-        double vmin_int;
-        if(i==0) vmin_int = 0.1*vmin;
-        else vmin_int = v_arr[i];
-        for(int j=0; j< numpoints_int; j++){
-          double v1 = pow(10 ,(log10(v) -log10(vmin_int))/(numpoints_int)* j + log10(vmin_int));
-          double v2 =pow(10 ,(log10(v) -log10(vmin_int))/(numpoints_int)* (j+1) + log10(vmin_int));
-          double dx = v2 - v1;
-          double E1 = eddington->psi_potential(x_rand)- v1*v1/2;
-          double E2 = eddington->psi_potential(x_rand)- v2*v2/2;
-          double dy = eddington->fE_func(E1)*v1*v1 + eddington->fE_func(E2)*v2*v2;
-          bin+= 0.5*dx*dy;
+      
+      if(beta_ani==0){
+        for(int j=0; j< npoints_vel+1; j++){ 
+          double v = pow(10 ,(log10(vmax) -log10(vmin))/(npoints_vel)* j + log10(vmin));
+          v_arr.push_back(v);
+          double E_edd = eddington->psi_potential(x_rand)- v*v/2;
+          integrand_v.push_back(eddington->fE_func(E_edd)*pow(v,2)*4*M_PI/eddington->profile_density(x_rand));
         }
-        cumulative_v.push_back(cumulative_v[i] + bin*4*M_PI/eddington->profile_density(x_rand));
+        // Now cumulative sum with trapezoid rule
+        for(int j=1; j<integrand_v.size();j++){
+          double dv = v_arr[j] - v_arr[j-1];
+          double dy = (integrand_v[j] + integrand_v[j-1])/2;
+          cumulative_v.push_back(dv*dy + cumulative_v[j-1]);
+        }
       }
+      else{
+        // Compute v cumulative, I am not using trapezoid rule, CHECK
+        for(int j=0; j< npoints_vel;j++){
+          double v = pow(10 ,(log10(vmax) -log10(vmin))/(npoints_vel)* j + log10(vmin));
+          v_arr.push_back(v);
+          double E_edd = eddington->psi_potential(x_rand)- v*v/2.;
+          integrand_v.push_back(eddington->fE_func(E_edd)*pow(v,2.-2.*beta_ani));
+        }
+        // Now cumulative sum with trapezoid rule
+        for(int j=1; j<integrand_v.size();j++){
+          double dv = v_arr[j] - v_arr[j-1];
+          double dy = (integrand_v[j] + integrand_v[j-1])/2.;
+          cumulative_v.push_back(dv*dy + cumulative_v[j-1]);
+        }
+        // Now normalize 
+        for(int j=0; j<cumulative_v.size();j++){
+          cumulative_v[j] = cumulative_v[j]/cumulative_v.back();
+        }
+      }
+      
       if (cumulative_v.back() < 0.95 || cumulative_v.back() > 1.05){
         cout<< "Error in the cumulative distribution"<<endl;
         cout<< "x_rand: "<<scientific<< x_rand << " vmax: "<< vmax << " vmin: "<< vmin << " cumulative_v: "<< cumulative_v.back()<<endl;
         cout<< "Show v cumulative (final points)"<<endl;
         for(int ishow=cumulative_v.size()-10;ishow<cumulative_v.size();ishow++)
           cout<<scientific << v_arr[ishow] << " " <<cumulative_v[ishow]<<endl;
-        // sleep(2);
       }
       double rand2 = fRand(0,1);
       double v_rand = interpolant(rand2, cumulative_v, v_arr);
@@ -619,8 +664,32 @@ multi_array<double,2> generate_random_stars(double vel_max){
         double value = x_rand*star[k-1]/mod_x +xmax[k-1];
         stars[i][k] = cyc_double(value,Length);
       }
-      for (int k=4;k<7;k++){
-        stars[i][k] = v_rand*star[k-1]/mod_v + vel_cm[k-4];
+      if(beta_ani==0){
+        for (int k=4;k<7;k++){
+          stars[i][k] = v_rand*star[k-1]/mod_v + vel_cm[k-4];
+        }
+      }
+      else{
+        double phi_angle = fRand(0,2*M_PI);
+        // v components on the r,theta,phi basis
+        double vr = v_rand*cos(eta_rand);
+        double vtheta = v_rand*sin(eta_rand)*cos(phi_angle);
+        double vphi = v_rand*sin(eta_rand)*sin(phi_angle);
+        // Recovering the theta, phi of the radius chosen, remember to
+        // subtract xmax to the stars coordinates
+        double rad_theta = acos((stars[i][3]-xmax[2])/x_rand);
+        double rad_phi = atan2(stars[i][2]-xmax[1],stars[i][1]-xmax[0]);
+        // cout<<"Check " << stars[i][1] << " " << stars[i][2] << " " << stars[i][3] << endl;
+        // cout<< "rad_theta: "<< rad_theta << " rad_phi: "<< rad_phi << endl;
+        // Now I want to rotate the velocity vector to the x,y,z basis
+        double v_x = vr*sin(rad_theta)*cos(rad_phi) + vtheta*cos(rad_theta)*cos(rad_phi) 
+          - vphi*sin(rad_phi);
+        double v_y = vr*sin(rad_theta)*sin(rad_phi) + vtheta*cos(rad_theta)*sin(rad_phi)
+          + vphi*cos(rad_phi);
+        double v_z = vr*cos(rad_theta) - vtheta*sin(rad_theta);
+        stars[i][4] = v_x + vel_cm[0];
+        stars[i][5] = v_y + vel_cm[1];
+        stars[i][6] = v_z + vel_cm[2];
       }
     }
     // #pragma omp barrier
@@ -695,28 +764,29 @@ multi_array<double,2> generate_random_stars(double vel_max){
 
 
 void snapshot_profile_stars(double stepCurrent){
-  cout.setf(ios_base::fixed);
-  if(world_rank==0)
-    profilefile_stars<<"{";
-  for(int l=0;l<nfields;l++){
-    maxdensity[l] = find_maximum(l);
-    find_center_mass(l);
-    multi_array<double,2> profile = profile_density_star_center(l);
+  if(num_stars_eff !=0){
+    cout.setf(ios_base::fixed);
+    if(world_rank==0)
+      profilefile_stars<<"{";
+    for(int l=0;l<nfields;l++){
+      maxdensity[l] = find_maximum(l);
+      find_center_mass(l);
+      multi_array<double,2> profile = profile_density_star_center(l);
+      if(world_rank==0){
+        print2(profile,profilefile_stars);
+        if(l<nfields-1)
+          profilefile_stars<<","<<flush;
+      }
+    }
     if(world_rank==0){
-      print2(profile,profilefile_stars);
-      if(l<nfields-1)
-        profilefile_stars<<","<<flush;
+      profilefile_stars<<"}\n" <<","<<flush;
+      timesfile_profile_stars<<"{"<<scientific<<tcurrent;
+        timesfile_profile_stars<<","<<scientific<<center_mass_stars[0]<<"," 
+        <<center_mass_stars[1]<<"," <<center_mass_stars[2];
+      timesfile_profile_stars<<"}\n"<<","<<flush;
+      cout<<"Output profile results stars center"<<endl;
     }
   }
-  if(world_rank==0){
-    profilefile_stars<<"}\n" <<","<<flush;
-    timesfile_profile_stars<<"{"<<scientific<<tcurrent;
-      timesfile_profile_stars<<","<<scientific<<center_mass_stars[0]<<"," 
-      <<center_mass_stars[1]<<"," <<center_mass_stars[2];
-    timesfile_profile_stars<<"}\n"<<","<<flush;
-    cout<<"Output profile results stars center"<<endl;
-  }
-  
 }
 
 

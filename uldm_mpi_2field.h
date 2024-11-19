@@ -1241,7 +1241,8 @@ public:
      * @param center_z The z-coordinate of the center.
      */
     void setEddington(Eddington *eddington, int numpoints, double radmin, double radmax, int fieldid, 
-                      double ratiomass, int num_k, bool simplify_k, int center_x, int center_y, int center_z);
+                      double ratiomass, int num_k, bool simplify_k, int center_x, int center_y, int center_z,
+                      vector<double> vel_halo={0.0, 0.0, 0.0});
 
     /**
      * @brief Re-output the initial conditions in the initial conditions file.
