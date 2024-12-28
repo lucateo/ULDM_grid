@@ -389,6 +389,12 @@ void domain3::snapshot_profile(double stepCurrent){// Outputs only few relevant 
         <<v_CM[0]<<"," <<v_CM[1]<<"," <<v_CM[2];
     }
   }
+  // Moment of inertia 
+  if(world_rank==0){
+    for(int l=0;l<nfields;l++){
+      timesfile_profile <<","<<I_time[l][0]<<","<<I_time[l][1]<<","<<I_time[l][2]<<","<<I_time[l][3];
+    }
+  }
   if(world_rank==0){
     timesfile_profile<<"}\n"<<","<<flush;
     cout<<"Output profile results"<<endl;

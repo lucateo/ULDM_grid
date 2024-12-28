@@ -577,16 +577,16 @@ void domain3::setEddington(Eddington *eddington, int numpoints, double radmin, d
     if(eddington->same_profile_den_pot==false){
       for (int id_prof=0; id_prof< eddington->profile_den_size(); id_prof++){
         info_initial_cond<<" " << eddington->get_profile_den(id_prof)->name_profile <<"__density";
-      for(int i = 0; i < eddington->get_profile_den(id_prof)->params.size(); i++){
-        info_initial_cond<<" "<<eddington->get_profile_den(id_prof)->params_name[i]
-          <<" "<<eddington->get_profile_den(id_prof)->params[i];
-      } 
+        for(int i = 0; i < eddington->get_profile_den(id_prof)->params.size(); i++){
+          info_initial_cond<<" "<<eddington->get_profile_den(id_prof)->params_name[i]
+            <<" "<<eddington->get_profile_den(id_prof)->params[i];
+        } 
+      }
     }
     info_initial_cond<<endl;
     info_initial_cond.close();
     cout<< "kmax global for Eddington initial conditions: "<< kmax_global<<" "
       << sqrt(2*eddington->psi_potential(radmin)) *ratiomass* Length/(2*M_PI)  <<endl;
-    }
   }
   vector<double> phases_send(int(pow(2*num_k_real,3)), 0);
   random_device rd;

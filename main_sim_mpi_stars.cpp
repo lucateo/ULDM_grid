@@ -643,7 +643,8 @@ int main(int argc, char** argv){
             // Stars gravity is not taken into account, so the potential 
             // should be just nfw
             // eddington_stars.set_profile_pot(profile_plummer);
-            eddington_stars.generate_fE_arr(1000, Length/Nx, Length_max_stars,outputname+"stars_");
+            double length_min_stars = min(0.1*Length/Nx, 0.01*r_plummer[id_halo]);
+            eddington_stars.generate_fE_arr(1000, length_min_stars, Length_max_stars,outputname+"stars_");
             vector<double> xmax;
             // Call this function to set the maximum density location in D3
             double max_density = D3.find_maximum(0);
@@ -756,7 +757,7 @@ int main(int argc, char** argv){
           // should be just nfw
           // eddington_stars.set_profile_pot(profile_plummer);
           // Stars could be more concentrated than the resolution of the grid spacing
-          double len_min_stars = 0.1*Length/Nx;
+          double len_min_stars = min(0.1*Length/Nx,0.01*r_plummer);
           eddington_stars.generate_fE_arr(1000, len_min_stars, Length_max_stars,outputname+"stars_");
           vector<double> xmax;
           // Call this function to set the maximum density location in D3
@@ -787,6 +788,102 @@ int main(int argc, char** argv){
   }
 
   
+  // Set an initial halo with anisotropy, Burkert
+  else if (initial_cond == "halo_stars_anisotropy_Burkert" ) {
+    outputname= directory_name+"halo_stars_anisotropy_Burkert"+outputname;
+    if (params_initial_cond.size()> 6) {
+      // Burkert parameters
+      double rs = stod(params_initial_cond[0]);
+      double rhos =stod(params_initial_cond[1]);
+      // Plummer parameters
+      double r_plummer =stod(params_initial_cond[2]);
+      double M_plummer=stod(params_initial_cond[3]);
+      double beta_ani = stod(params_initial_cond[4]);
+      int num_k = stoi(params_initial_cond[5]); // Number of maximum k points in nested loop
+      int numstep_relax = stoi(params_initial_cond[6]); // Number of steps to relax the halo
+      bool boolk = false; // simplify k sum always false
+      outputname = outputname+"rs_"+to_string(rs)+"_rhos_"+to_string(rhos)+
+        "_r_plummer_"+to_string(r_plummer)+"_M_plummer_"+to_string(M_plummer)
+        +"_beta_"+to_string(beta_ani)+"_num_stars_"+to_string(num_stars)+"_";
+      
+      D3.set_output_name(outputname);
+      D3.set_ratio_masses(ratio_mass);
+      
+      if(start_from_backup=="true"){
+        D3.initial_cond_from_backup();
+        D3.get_star_backup();
+      }
+      else{
+        multi_array<double, 2> stars_arr(extents[num_stars][8]);
+        D3.put_initial_stars(stars_arr);
+        double length_max_halo = 4*Length;
+        Burkert *profile_burk = new Burkert(rs, rhos, length_max_halo, true);// The actual max radius is between Length and Length/2
+        // For stars, there is no meaning to put Length as rmax
+        Eddington eddington_burk = Eddington(true, beta_ani);
+        eddington_burk.set_profile_den(profile_burk);
+        eddington_burk.set_profile_pot(profile_burk);
+        // setEddington computes fE_func, so you should run it before
+        D3.setEddington(&eddington_burk, 1000, Length/Nx, length_max_halo, 0, ratio_mass[0], num_k, boolk,
+            int(Nx/2),int(Nx/2), int(Nx/2)); // The actual max radius is between Length and Length/2
+        // Print the full initial snapshot, it prints in a snapshot file and not
+        // in the backup file
+        ofstream psi_snapshot;
+        D3.outputfullPsi(psi_snapshot,false,1);
+        // if numstep_relax==0, do not do evolution without stars
+        // Also if number of halos is greater than one, do not relax the halo
+        if(numstep_relax>0 ){
+          // Sets the number of steps to relax the halo
+          D3.set_numsteps(numstep_relax);
+          D3.put_numstar_eff(0);
+          // Run until relaxing time
+          D3.solveConvDif();
+        }
+        D3.set_numsteps(numsteps);
+        D3.put_numstar_eff(num_stars);
+        // Then generate stars
+        if(world_rank==0){
+          double Length_max_stars= 10*Length;
+          Eddington eddington_stars = Eddington(false, beta_ani);
+          Plummer *profile_plummer = new Plummer(r_plummer, 
+              M_plummer, Length_max_stars, true);
+          Burkert *profile_burk_stars = new Burkert(rs, rhos, Length_max_stars, true);
+          eddington_stars.set_profile_den(profile_plummer);
+          eddington_stars.set_profile_pot(profile_burk_stars);
+          // Stars gravity is not taken into account, so the potential 
+          // should be just nfw
+          // eddington_stars.set_profile_pot(profile_plummer);
+          // Stars could be more concentrated than the resolution of the grid spacing
+          double len_min_stars = min(0.1*Length/Nx,0.01*r_plummer);
+          eddington_stars.generate_fE_arr(1000, len_min_stars, Length_max_stars,outputname+"stars_");
+          vector<double> xmax;
+          // Call this function to set the maximum density location in D3
+          double max_density = D3.find_maximum(0);
+          vector<double> v_cm(3,0);
+          for (int i=0; i<3; i++){
+              xmax.push_back(D3.get_maxx(0,i)*Length/Nx);
+              v_cm.push_back(D3.v_center_mass(i,0));
+          }
+            // Put just the center of the halos and vcm =vcm_halo if nhalos>1
+          // Maximum length in profiles and here does not need to be the same
+          cout<<"num_stars "<<num_stars<<endl;
+          D3.generate_stars(&eddington_stars,
+            len_min_stars, Length/3, xmax, v_cm, 0, num_stars);
+          // World rank 0 creates the star backup, then all the other ranks will take from this backup
+          D3.out_star_backup();
+        }
+        D3.get_star_backup();
+      }
+      // After, if start_from_backup is false, it will not save the relaxing of halo part
+    }
+    else{
+      run_ok=false; 
+      if (world_rank==0){
+        cout<<"You need 7 arguments to pass to the code: rs, rhos, r_plummer, M_plummer, beta_anisotropy, num_k, numstep_relax" << endl;
+      }
+    }
+  }
+
+
   // Set 2 initial halos
   else if (initial_cond == "2halos_stars_NFW" ) {
     outputname= directory_name+"halo_stars_NFW"+outputname;
@@ -958,7 +1055,8 @@ int main(int argc, char** argv){
           eddington_stars.set_profile_pot(profile_burk_stars);
           // Stars gravity is not taken into account, so the potential 
           // should be just burkert
-          eddington_stars.generate_fE_arr(1000, Length/Nx, Length_max_stars,outputname+"stars_");
+          double len_min_stars = min(0.1*Length/Nx, 0.01*r_plummer);
+          eddington_stars.generate_fE_arr(1000, len_min_stars, Length_max_stars,outputname+"stars_");
           vector<double> xmax;
           // Call this function to set the maximum density location in D3,
           // needed if numstep_relax==0

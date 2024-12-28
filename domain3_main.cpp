@@ -19,6 +19,7 @@ domain3::domain3(size_t PS,size_t PSS, double L, int n_fields, int Numsteps, dou
   PointsSS(PSS),
   Length(L),
   dt(DT),
+  dtmax(100*DT), // default maximum time step
   numsteps(Numsteps),
   pointsmax(pointsm),
   numoutputs(Nout), //outputs animation every Nout steps
@@ -26,6 +27,7 @@ domain3::domain3(size_t PS,size_t PSS, double L, int n_fields, int Numsteps, dou
   outputname("out_"), // A default output name, to be changed with set_output_name function
   maxx(extents[n_fields][3]), // maxx, y,z of the n_fields fields, initialized to zero to avoid overflow
   maxdensity(extents[n_fields]), // maxdensity of the fields
+  I_time(extents[n_fields][4]),   //Moment of inertia
   world_rank(WR),
   world_size(WS)
   {
@@ -132,28 +134,20 @@ double domain3::x_center_mass(int coordinate, int whichPsi){
       for(size_t k=nghost;k<PointsSS+nghost;k++){
         size_t real_k = k-nghost + PointsSS*world_rank;
         // It computes it around the maximum of density, to hopefully mitigate the periodic boundary problem
-        if(coordinate==0) {
-          int Dd=maxx[whichPsi][0]-(int)i; 
-          if(Dd>PointsS/2){
-            Dd=Dd-(int)PointsS;
-            }
-          else if (Dd<-PointsS/2){
-            Dd=Dd+(int)PointsS;
+        int Dd=0;
+        if(coordinate==0) 
+          Dd=maxx[whichPsi][0]-(int)i; 
+        else if(coordinate==1) 
+          Dd=maxx[whichPsi][1]-(int)j; 
+        else if(coordinate==2) 
+          Dd=maxx[whichPsi][2]-(int)real_k; 
+        if(Dd>PointsS/2){
+          Dd=Dd-(int)PointsS;
           }
-          totV=totV+(pow(psi[2*whichPsi][i][j][k],2)+pow(psi[2*whichPsi+1][i][j][k],2)) * Dd *Length/PointsS;
+        else if (Dd<-PointsS/2){
+          Dd=Dd+(int)PointsS;
         }
-        else if(coordinate==1){ 
-          int Dd=maxx[whichPsi][1]-(int)j; 
-          if(Dd>PointsS/2){Dd=Dd-(int)PointsS;}
-          else if (Dd<-PointsS/2){Dd=Dd+(int)PointsS;} 
-          totV=totV+(pow(psi[2*whichPsi][i][j][k],2)+pow(psi[2*whichPsi+1][i][j][k],2)) * Dd *Length/PointsS;
-        }
-        else if(coordinate==2) {
-          int Dd=maxx[whichPsi][2]-(int)real_k; 
-          if(Dd>PointsS/2){Dd=Dd-(int)PointsS;}
-          else if (Dd<-PointsS/2){Dd=Dd+(int)PointsS;} 
-          totV=totV+(pow(psi[2*whichPsi][i][j][k],2)+pow(psi[2*whichPsi+1][i][j][k],2)) * Dd *Length/PointsS;
-        }
+        totV=totV+(pow(psi[2*whichPsi][i][j][k],2)+pow(psi[2*whichPsi+1][i][j][k],2)) * Dd *Length/PointsS;
       }
   #pragma omp barrier
   long double totVshared; // total summed up across all nodes
@@ -165,8 +159,35 @@ double domain3::x_center_mass(int coordinate, int whichPsi){
     totVshared=totV*pow(Length/PointsS,3) / mass;
   }
   // Add the maximum point to recover the actual point coordinates of the grid
-  return totVshared + maxx[whichPsi][coordinate];
+  return totVshared + maxx[whichPsi][coordinate]*Length/PointsS;
 }
+
+
+long double domain3::I_ang(int whichPsi){// Computes I = 1/2 int d^3x (r-rmax)^2 |psi|^2 
+  find_maximum(whichPsi);
+  long double totV=0;
+  #pragma omp parallel for collapse(3) reduction(+:totV)
+  for(size_t i=0;i<PointsS;i++)
+    for(size_t j=0;j<PointsS;j++)
+      for(size_t k=nghost;k<PointsSS+nghost;k++){
+        size_t real_k = k-nghost + PointsSS*world_rank;
+        int Dx=maxx[whichPsi][0]-(int)i; if(abs(Dx)>PointsS/2){Dx=abs(Dx)-(int)PointsS;} // workaround which takes into account the periodic boundary conditions
+        int Dy=maxx[whichPsi][1]-(int)j; if(abs(Dy)>PointsS/2){Dy=abs(Dy)-(int)PointsS;} // periodic boundary conditions!
+        int Dz=maxx[whichPsi][2]-(int)real_k; if(abs(Dz)>PointsS/2){Dz=abs(Dz)-(int)PointsS;} // periodic boundary conditions!
+        totV+= (Dx*Dx+Dy*Dy+Dz*Dz)*(pow(psi[2*whichPsi][i][j][k],2)+pow(psi[2*whichPsi+1][i][j][k],2));
+      }
+  #pragma omp barrier
+  long double totVshared; // total summed up across all nodes
+  if(mpi_bool==true){
+    MPI_Allreduce(&totV, &totVshared, 1, MPI_LONG_DOUBLE, MPI_SUM,MPI_COMM_WORLD);
+    totVshared=0.5*totVshared*pow(Length/PointsS,5);
+  }
+  else {
+    totVshared=0.5*totV*pow(Length/PointsS,5);
+  }
+  return totVshared;
+} 
+
 
 long double domain3::full_energy_kin(int whichPsi){// it computes the kinetic energy of the whole box with derivatives
   long double total_energy = 0;
@@ -401,8 +422,6 @@ void domain3::solveConvDif(){
     while (std::getline(infile, temp, ' ') && i<6){ // convoluted way to read just the character I need
       if(i==0)
         tcurrent = stod(temp);
-      // else if(i==5)
-      //   dt=stod(temp);
       i++;
     }
     t_spectrum = tcurrent; // The time at which computes the energy spectrum
@@ -440,7 +459,24 @@ void domain3::solveConvDif(){
     for(int i=0;i<nfields;i++){
       etot_current += e_kin_full1(i) + full_energy_pot(i);
     }
-    if(adaptive_timestep==true){
+    
+    // If you are on the time steps where you store I, enforce the non change of dt
+    bool change_dt = true;
+    if ((stepCurrent+2)%numoutputs_profile==0){
+      change_dt = false;
+      // Compute I[t -2dt]
+      for(int whichF=0;whichF<nfields;whichF++){
+        I_time[whichF][0] = I_ang(whichF);
+      }
+    }
+    if((stepCurrent+1)%numoutputs_profile==0){
+      change_dt = false;
+      // Compute I[t -dt]
+      for(int whichF=0;whichF<nfields;whichF++){
+        I_time[whichF][1] = I_ang(whichF);
+      }
+    }
+    if(adaptive_timestep==true && change_dt==true){
       double compare_energy = abs(etot_current-E_tot_initial)/abs(etot_current + E_tot_initial);
       double compare_energy_running = abs(etot_current-E_tot_running)/abs(etot_current + E_tot_running);
       if (world_rank==0) cout<<"E tot current "<<etot_current << " E tot initial " << E_tot_initial << " compare E ratio "<<compare_energy <<endl;
@@ -456,13 +492,13 @@ void domain3::solveConvDif(){
         }
       }
       else if(compare_energy<1E-6 && compare_energy_running>1E-9){
-        dt = dt*1.2; // Less aggressive when increasing the time step, rather than when decreasing it
+        dt = min(dt*1.2,dtmax); // Less aggressive when increasing the time step, rather than when decreasing it
       }
       else if (compare_energy_running < 1E-9) {
-        dt = dt*1.5; // If it remains stuck to an incredibly low dt, try to unstuck it
-      if (world_rank==0)
-        cout<<"Unstucking, count energy " << count_energy << " switch energy count " << switch_en_count 
-          << " --------------------------------------------------------------------------------------------------------------------"<<endl;
+        dt = min(dt*1.5,dtmax); // If it remains stuck to an incredibly low dt, try to unstuck it
+        if (world_rank==0)
+          cout<<"Unstucking, count energy " << count_energy << " switch energy count " << switch_en_count 
+            << " --------------------------------------------------------------------------------------------------------------------"<<endl;
       }
       E_tot_running = etot_current;
     }
@@ -492,6 +528,12 @@ void domain3::solveConvDif(){
       if (mpi_bool==true){ 
         sortGhosts(); // Should be called, to do derivatives in real space
       }
+      for(int whichF=0;whichF<nfields;whichF++){
+        // Compute I[t]
+        I_time[whichF][2]=I_ang(whichF); 
+        // Compute Idotdot
+        I_time[whichF][3]= (I_time[whichF][2]-2*I_time[whichF][1]+I_time[whichF][0])/pow(dt,2);
+      }
       snapshot_profile(stepCurrent);
       exportValues(); // for backup purposes
       ofstream psi_final;
@@ -504,43 +546,6 @@ void domain3::solveConvDif(){
 
 
 void domain3::initial_cond_from_backup(){
-  // multi_array<double,1> Arr1D(extents[PointsS*PointsS*PointsSS]);
-  // string outputname_file;
-  // if(mpi_bool==true){
-  //   outputname_file = outputname + "phi_final_" + to_string(world_rank) + ".txt";
-  // }
-  // else {
-  //   outputname_file = outputname + "phi_final.txt";
-  // }
-  // ifstream infile(outputname_file);
-  // string temp;
-  // double num;
-  // // size_t l = 0;
-  // size_t i = 0; size_t j = 0; size_t k = 0;
-  // // Get the input from the input file
-  // while (std::getline(infile, temp, ' ')) {
-  // // Add to the list of output strings
-  //   if(i<PointsS){
-  //     Phi[i][j][k] = stod(temp);
-  //     i++;
-  //   }
-  //   if(i==PointsS){
-  //     if(j<PointsS-1) {
-  //       i=0;
-  //       j++;
-  //     }
-  //     else if(j==PointsS-1 && k<PointsSS-1){
-  //       i=0; j=0; k++;
-  //     }
-  //   }
-  // }
-  // for(size_t i =0; i<PointsS; i++)
-  //   for(size_t j =0; j<PointsS; j++)
-  //     for(size_t k =0; k<PointsSS; k++){
-  //       // cout<<i<<endl;
-  //       Phi[i][j][k] = Arr1D[i+j*PointsS+k*PointsS*PointsS];
-  //     }
-  // infile.close();
   string outputname_file;
   if(mpi_bool==true){
     outputname_file = outputname + "psi_final_" + to_string(world_rank) + ".txt";

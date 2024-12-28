@@ -717,6 +717,7 @@ protected:
     double Length; ///< Physical length of the domain.
     int numsteps; ///< Number of steps for adaptive timestep case.
     double dt; ///< Initial time step.
+    double dtmax; ///< Maximum time step.
     double deltaX; ///< Grid units grid spacing.
     int numoutputs; ///< Number of outputs for the sliced or full 3D density profile (for animation).
     int numoutputs_profile; ///< Number of outputs for the radial profiles.
@@ -746,6 +747,7 @@ protected:
     multi_array<double, 1> maxdensity; ///< Max density on the grid.
     double tcurrent = 0.0; ///< Current time of simulation.
     double E_tot_initial = 0; ///< Stores the initial total energy to implement the adaptive time step.
+    multi_array<double,2> I_time; ///< Contains I_time[whichField] = [ I(t-2dt1) ,  I(t-dt2) ,  I(t) ,  Idotdot(t)], Idotdot computed using backward derivative                      
     int world_rank; ///< MPI rank of the process.
     int world_size; ///< Total number of MPI processes.
 
@@ -823,6 +825,21 @@ public:
      * @param whichPsi The field index.
      * @return The kinetic energy at the grid point.
      */
+    
+    
+    /**
+    * @brief Computes the angular momentum integral.
+    *
+    * This function computes the integral I, defined as:
+    * \f[
+    * I = \frac{1}{2} \int d^3x \, (r - r_{\text{max}})^2 |\psi|^2
+    * \f]
+    *
+    * @param whichPsi The field index.
+    * @return The computed value of the integral I.
+    */
+    long double I_ang(int whichPsi);// Computes I = 1/2 int d^3x (r-rmax)^2 |psi|^2 
+    
     double energy_kin(const int &i, const int &j, const int &k, int whichPsi);
     
     /**
@@ -923,7 +940,13 @@ public:
      * @param ratio_mass The ratio between the masses.
      */
     void set_ratio_masses(multi_array<double,1> ratio_mass);
-
+    
+    /**
+    * @brief Set the maximum dt allowed, relevant if adaptive timesteps are used.
+    * @param Dtmax The maximum time step.
+    */    
+    void set_dtmax(double Dtmax);    
+    
     /**
      * @brief Set the grid reduction parameter, relevant for full snapshots outputs.
      * 

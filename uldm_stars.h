@@ -55,7 +55,10 @@ class domain_stars: public domain3
               pointsm, WR, WS, Nghost, mpi_flag}, 
               stars(extents[num_stars][8]),
               center_mass_stars(extents[3])
-      { num_stars_eff = num_stars; };
+      { 
+        num_stars_eff = num_stars; 
+        dtmax = 10*DT; // default maximum time step, make it less than the one in domain3
+      };
 
     /**
      * @brief Default constructor for domain_stars.
@@ -866,7 +869,24 @@ void snapshot_profile_stars(double stepCurrent){
       for(int i=0;i<nfields;i++){
         etot_current += e_kin_full1(i) + full_energy_pot(i);
       }
-      if (adaptive_timestep == true){
+      
+      // If you are on the time steps where you store I, enforce the non change of dt
+      bool change_dt = true;
+      if ((stepCurrent+2)%numoutputs_profile==0){
+        change_dt = false;
+        // Compute I[t -2dt]
+        for(int whichF=0;whichF<nfields;whichF++){
+          I_time[whichF][0] = I_ang(whichF);
+        }
+      }
+      if((stepCurrent+1)%numoutputs_profile==0){
+        change_dt = false;
+        // Compute I[t -dt]
+        for(int whichF=0;whichF<nfields;whichF++){
+          I_time[whichF][1] = I_ang(whichF);
+        }
+      }
+      if (adaptive_timestep == true && change_dt == true){
         double compare_energy = abs(etot_current-E_tot_initial)/abs(etot_current + E_tot_initial);
         double compare_energy_running = abs(etot_current-E_tot_running)/abs(etot_current + E_tot_running);
         if (world_rank==0) cout<<"E tot current "<<etot_current << " E tot initial " << E_tot_initial << " compare E ratio "<<compare_energy <<endl;
@@ -882,10 +902,10 @@ void snapshot_profile_stars(double stepCurrent){
           }
         }
         else if(compare_energy<1E-5 && compare_energy_running>1E-8){
-          dt = dt*1.2; // Less aggressive when increasing the time step, rather than when decreasing it
+          dt = min(dt*1.2,dtmax); // Less aggressive when increasing the time step, rather than when decreasing it
         }
         else if (compare_energy_running < 1E-8) {
-          dt = dt*2; // If it remains stuck to an incredibly low dt, try to unstuck it
+          dt = min(dt*1.5, dtmax); // If it remains stuck to an incredibly low dt, try to unstuck it
           cout<<"Unstucking --------------------------------------------------------------------------------------------------------------------"<<endl;
         }
         E_tot_running = etot_current;
@@ -900,6 +920,12 @@ void snapshot_profile_stars(double stepCurrent){
       if(stepCurrent%numoutputs_profile==0 || stepCurrent==numsteps) {
         if (mpi_bool==true){ 
           sortGhosts(); // Should be called, to do derivatives in real space
+        }
+        for(int whichF=0;whichF<nfields;whichF++){
+          // Compute I[t]
+          I_time[whichF][2]=I_ang(whichF); 
+          // Compute Idotdot
+          I_time[whichF][3]= (I_time[whichF][2]-2*I_time[whichF][1]+I_time[whichF][0])/pow(dt,2);
         }
         snapshot_profile(stepCurrent);
         snapshot_profile_stars(stepCurrent);
